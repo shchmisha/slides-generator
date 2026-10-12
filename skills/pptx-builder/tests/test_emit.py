@@ -31,11 +31,11 @@ def test_slide_size_is_16_9_widescreen(tmp_path: Path) -> None:
 
 
 def test_text_keeps_runs_fonts_and_position(tmp_path: Path) -> None:
-    prs = roundtrip(make_layout([text_el("Выручка 2 877 млн ₽", bold=True)]), tmp_path)
+    prs = roundtrip(make_layout([text_el("Выручка 2\u00a0877 млн ₽", bold=True)]), tmp_path)
     shape = prs.slides[0].shapes[0]
     assert shape.has_text_frame
     run = shape.text_frame.paragraphs[0].runs[0]
-    assert run.text == "Выручка 2 877 млн ₽"
+    assert run.text == "Выручка 2\u00a0877 млн ₽"
     assert run.font.name == "Georgia"
     assert run.font.size.pt == 24  # 32 px
     assert run.font.bold is True
@@ -95,7 +95,7 @@ def test_table_is_native_with_measured_sizes_and_borders(tmp_path: Path) -> None
         "rowH": [36, 36],
         "cells": [
             [cell("Филиал", bottom_px=2), cell("Факт", bottom_px=2)],
-            [cell("Итого", bottom_px=0, fill="F3F5F8", alpha=1), cell("2 877", bottom_px=0)],
+            [cell("Итого", bottom_px=0, fill="F3F5F8", alpha=1), cell("2\u00a0877", bottom_px=0)],
         ],
     }
     prs = roundtrip(make_layout([table]), tmp_path)
@@ -103,7 +103,7 @@ def test_table_is_native_with_measured_sizes_and_borders(tmp_path: Path) -> None
     assert frame.has_table
     tbl = frame.table
     assert [c.width for c in tbl.columns] == [200 * 9525, 200 * 9525]
-    assert tbl.cell(1, 1).text == "2 877"
+    assert tbl.cell(1, 1).text == "2\u00a0877"
     assert tbl._tbl.tblPr.find(qn("a:tableStyleId")).text == NO_STYLE_TABLE
 
     header_pr = tbl.cell(0, 0)._tc.tcPr
@@ -159,7 +159,7 @@ def test_combo_chart_puts_lines_on_a_secondary_axis(tmp_path: Path) -> None:
     secondary = plot_area.xpath(f"c:valAx[c:axId/@val='{line_axis_ids[1]}']")[0]
     assert secondary.find(f"{C}axPos").get("val") == "r"
     assert secondary.find(f"{C}crosses").get("val") == "max"
-    assert secondary.find(f"{C}numFmt").get("formatCode") == '0.0" %"'
+    assert secondary.find(f"{C}numFmt").get("formatCode") == '0.0"\u00a0%"'
     assert secondary.find(f"{C}scaling/{C}max").get("val") == "15.0"
     hidden_cat = plot_area.xpath(f"c:catAx[c:axId/@val='{line_axis_ids[0]}']")[0]
     assert hidden_cat.find(f"{C}delete").get("val") == "1"
