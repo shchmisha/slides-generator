@@ -118,10 +118,14 @@ def _split(grid: Grid, source: str) -> tuple[list[Block], list[RawTable]]:
             blocks += [Block(kind="paragraph", text=text) for text in texts]
             pending_title = texts[-1] if len(texts) == 1 else None
             continue
-        title = pending_title
+        title: str | None
         if len(_filled(rows[0])) == 1 and len(rows) >= 3:
             cell = next(c for c in rows[0] if c.value is not None)
             title, rows = str(cell.value), rows[1:]
+        else:
+            title = pending_title
+            if title is not None and blocks and blocks[-1].text == title:
+                blocks.pop()  # the line right above the table is its title, not separate text
         tables.append(RawTable(source=source, title=title, rows=rows))
         pending_title = None
     return blocks, tables

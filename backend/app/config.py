@@ -7,13 +7,15 @@ never show up in reprs, logs or tracebacks.
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=None, extra="ignore")
+    # An empty variable (`LLM_EXTRA_BODY: ${LLM_EXTRA_BODY:-}` in compose) means "use the default".
+    model_config = SettingsConfigDict(env_file=None, extra="ignore", env_ignore_empty=True)
 
     log_level: str = "INFO"
 
@@ -26,6 +28,17 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://openrouter.ai/api/v1"
     llm_model: str = ""
     llm_api_key: SecretStr = SecretStr("")
+    # Extra request fields for this endpoint, as JSON. Qwen's thinking mode is turned off here:
+    # vLLM/SGLang take {"chat_template_kwargs": {"enable_thinking": false}},
+    # OpenRouter takes {"reasoning": {"enabled": false}}.
+    llm_extra_body: dict[str, Any] = Field(
+        default_factory=lambda: {"chat_template_kwargs": {"enable_thinking": False}}
+    )
+    # Ask the server for a JSON object (response_format). Off by default: not every
+    # OpenAI-compatible server supports it, and the agent validates the JSON itself anyway.
+    llm_json_mode: bool = False
+    llm_timeout_s: float = Field(default=240, gt=0)
+    llm_max_tokens: int = Field(default=16_000, ge=1_000)
 
     # Hard limits from the brief: up to 5 concurrent generations, 10 files, 20 MB each.
     max_files_per_project: int = Field(default=10, ge=1)

@@ -90,6 +90,8 @@ services:
       LLM_BASE_URL: ${LLM_BASE_URL}
       LLM_MODEL: ${LLM_MODEL}
       LLM_API_KEY: ${LLM_API_KEY}
+      LLM_EXTRA_BODY: ${LLM_EXTRA_BODY:-}
+      LLM_JSON_MODE: ${LLM_JSON_MODE:-false}
     depends_on:
       migrate:
         condition: service_completed_successfully
