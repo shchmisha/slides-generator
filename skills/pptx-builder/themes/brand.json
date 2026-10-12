@@ -1,0 +1,18 @@
+{
+  "name": "brand",
+  "colors": {
+    "primary": "#1F3A5F",
+    "accent": "#E8A33D",
+    "text": "#1D1D1F",
+    "muted": "#5B6472",
+    "positive": "#2F7D4F",
+    "negative": "#B3352B",
+    "surface": "#F3F5F8",
+    "grid": "#D8DDE4",
+    "background": "#FFFFFF"
+  },
+  "fonts": {
+    "heading": "Georgia",
+    "body": "Arial"
+  }
+}

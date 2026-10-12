@@ -1,0 +1,56 @@
+[project]
+name = "pptx-builder"
+version = "0.2.0"
+description = "Skill scripts: render-ready deck spec → native, editable PPTX (Chromium layout + python-pptx)"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.12",
+    "python-pptx>=1.0.2",
+]
+
+[project.scripts]
+build-deck = "pptx_builder.build:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+    "types-lxml>=2025.3.30",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pptx_builder"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["node_modules", "out"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PTH", "N"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # Cyrillic in strings/comments is intentional
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+# The layout step is our own Node script, started with a fixed argument list (no shell).
+"pptx_builder/build.py" = ["S603"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["pptx_builder"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# python-pptx ships type hints for its public API but not for many helpers we call.
+module = ["pptx_builder.emit", "pptx_builder.charts"]
+disallow_untyped_calls = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

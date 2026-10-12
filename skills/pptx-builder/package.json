@@ -1,0 +1,22 @@
+{
+  "name": "pptx-builder",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Skill: lay out a render-ready deck spec as HTML/CSS in Chromium and measure it for the native PPTX emitter",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "layout": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/js/*.test.ts"
+  },
+  "dependencies": {
+    "playwright-core": "^1.64.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
