@@ -35,8 +35,8 @@ def test_example_deck_builds_without_layout_issues(tmp_path: Path) -> None:
     assert len(prs.slides) == len(spec["slides"])
     charts = [s.chart for slide in prs.slides for s in slide.shapes if s.has_chart]
     tables = [s.table for slide in prs.slides for s in slide.shapes if s.has_table]
-    assert len(charts) == 2
-    assert len(tables) == 2
+    assert len(charts) == 3  # chart_table ×2, chart
+    assert len(tables) == 3  # chart_table ×2, table
     # Numbers on the slide come straight from the spec.
     assert list(charts[0].plots[0].series[1].values) == [379, 674, 1065, 449, 310]
 

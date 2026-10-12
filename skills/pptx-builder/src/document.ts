@@ -77,6 +77,39 @@ html,body{background:#d9dce1}
 .callout{position:relative;flex:none;margin:16px 0 18px;padding:14px 20px 14px 32px;border-radius:8px;background:var(--surface)}
 .callout-bar{position:absolute;left:14px;top:14px;bottom:14px;width:4px;border-radius:2px;background:var(--accent)}
 .callout-text{font-size:16px;line-height:22px;max-height:44px;overflow:hidden}
+
+/* table, chart (full width) */
+.tb-main,.ch-main{flex:1;min-height:0;display:flex;flex-direction:column}
+.tbl-wide{font-size:15px;line-height:20px}
+.tbl-wide th{font-size:13px;line-height:18px;padding:9px 12px}
+.tbl-wide td{padding:10px 12px}
+
+/* cost_structure */
+.cs-total{flex:none;font-size:16px;line-height:22px;color:var(--muted);margin-bottom:12px}
+.cs-total-value{color:var(--text)}
+.cs-bar{flex:none;display:flex;gap:3px;height:76px}
+.cs-seg{position:relative;min-width:6px;border-radius:4px}
+.cs-seg-text{position:absolute;left:12px;right:8px;top:12px;font-size:16px;line-height:20px;font-weight:700;
+  color:var(--text);white-space:nowrap;overflow:hidden}
+.cs-seg-text.on-dark{color:#fff}
+.cs-list{flex:1;min-height:0;display:grid;grid-template-columns:repeat(3,1fr);gap:18px 36px;margin-top:28px;align-content:start}
+.cs-item{position:relative;padding-left:28px}
+.cs-dot{position:absolute;left:0;top:4px;width:16px;height:16px;border-radius:4px}
+.cs-label{font-size:17px;line-height:23px;font-weight:700;max-height:23px;overflow:hidden;white-space:nowrap}
+.cs-meta{font-size:15px;line-height:21px;color:var(--muted);margin-top:2px}
+.cs-change{font-size:14px;line-height:20px;font-weight:700;margin-top:2px}
+.cs-change.tone-neutral{color:var(--muted)}
+
+/* risks_decisions */
+.rd-main{flex:1;min-height:0;display:flex;gap:32px;padding-bottom:20px}
+.rd-col{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.rd-head{font-family:var(--font-heading);font-size:20px;line-height:26px;font-weight:700;margin-bottom:2px}
+.rd-head-risk{color:var(--negative)} .rd-head-decision{color:var(--positive)}
+.rd-card{position:relative;padding:14px 20px 14px 34px;border-radius:8px;background:var(--surface)}
+.rd-bar{position:absolute;left:16px;top:16px;bottom:16px;width:4px;border-radius:2px}
+.rd-bar-risk{background:var(--negative)} .rd-bar-decision{background:var(--positive)}
+.rd-title{font-size:17px;line-height:23px;font-weight:700;max-height:46px;overflow:hidden}
+.rd-text{font-size:15px;line-height:21px;margin-top:4px;max-height:63px;overflow:hidden}
 `;
 
 export function renderDocument(deck: DeckSpec, theme: Theme, logo?: string): string {

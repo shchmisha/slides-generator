@@ -81,13 +81,13 @@ class ColumnRef(_Frozen):
     rows: list[str] | None = None
 
 
-class DerivedRef(_Frozen):
-    """The result of an earlier operation: {"derived": "profit"}."""
+class NameRef(_Frozen):
+    """A named value of the scenario or the result of an earlier operation: {"name": "profit"}."""
 
-    derived: str
+    name: str
 
 
-Ref = CellRef | RowRef | ColumnRef | DerivedRef
+Ref = CellRef | RowRef | ColumnRef | NameRef
 
 
 # ------------------------------------------------------------------------------ quantities

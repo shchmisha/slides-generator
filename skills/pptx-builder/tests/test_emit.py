@@ -168,6 +168,13 @@ def test_combo_chart_puts_lines_on_a_secondary_axis(tmp_path: Path) -> None:
     assert primary.find(f"{C}scaling/{C}max").get("val") == "1000.0"
 
 
+def test_missing_values_are_gaps_not_zeros(tmp_path: Path) -> None:
+    series = [{"name": "NPS", "kind": "bar", "color": "primary", "values": [52, None, 58]}]
+    prs = roundtrip(make_layout([chart_el(series)]), tmp_path)
+    values = list(prs.slides[0].shapes[0].chart.plots[0].series[0].values)
+    assert values == [52, None, 58]
+
+
 def test_chart_area_is_transparent(tmp_path: Path) -> None:
     series = [{"name": "Факт", "kind": "bar", "color": "primary", "values": [1, 2, 3]}]
     prs = roundtrip(make_layout([chart_el(series)]), tmp_path)

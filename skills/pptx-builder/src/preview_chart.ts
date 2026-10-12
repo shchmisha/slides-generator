@@ -27,16 +27,18 @@ export interface ChartScales {
 /**
  * Axis ranges and steps, computed once here and used by both the SVG preview and the native
  * chart (via layout.json), so PowerPoint does not pick different gridlines than the preview.
+ * Both axes start at zero unless told otherwise: a 2-point dip must not look like a crash.
  */
 export function chartScales(spec: ChartSpec): ChartScales {
-  const primaryValues = spec.series.filter((s) => s.axis !== "secondary").flatMap((s) => s.values);
+  const present = (values: (number | null)[]) => values.filter((v): v is number => v !== null);
+  const primaryValues = present(spec.series.filter((s) => s.axis !== "secondary").flatMap((s) => s.values));
   const primary = niceScale(Math.min(0, ...primaryValues), Math.max(0, ...primaryValues));
-  const secondaryValues = spec.series.filter((s) => s.axis === "secondary").flatMap((s) => s.values);
+  const secondaryValues = present(spec.series.filter((s) => s.axis === "secondary").flatMap((s) => s.values));
   if (secondaryValues.length === 0) return { primary };
   const secondary =
     spec.secondaryMin !== undefined && spec.secondaryMax !== undefined
       ? { min: spec.secondaryMin, max: spec.secondaryMax, step: (spec.secondaryMax - spec.secondaryMin) / 5 }
-      : niceScale(Math.min(...secondaryValues), Math.max(...secondaryValues));
+      : niceScale(Math.min(0, ...secondaryValues), Math.max(0, ...secondaryValues));
   return { primary, secondary };
 }
 
@@ -80,6 +82,7 @@ export function renderChartSvg(spec: ChartSpec, width: number, height: number, t
   const barW = bars.length > 0 ? groupW / bars.length : 0;
   bars.forEach((s, si) => {
     s.values.forEach((v, ci) => {
+      if (v === null) return; // no data: a gap, never a zero bar
       const x = plot.x + ci * band + (band - groupW) / 2 + si * barW;
       const y = yP(v);
       out.push(
@@ -92,15 +95,16 @@ export function renderChartSvg(spec: ChartSpec, width: number, height: number, t
   for (const s of lines) {
     const y = s.axis === "secondary" ? yS : yP;
     const fmt = s.axis === "secondary" ? (spec.secondaryFormat ?? "0") : spec.valueFormat;
-    const pts = s.values.map((v, ci) => [plot.x + ci * band + band / 2, y(v)] as const);
+    const pts = s.values.flatMap((v, ci) =>
+      v === null ? [] : [[plot.x + ci * band + band / 2, y(v), v] as const],
+    );
     out.push(
       `<polyline points="${pts.map(([x, yy]) => `${x.toFixed(1)},${yy.toFixed(1)}`).join(" ")}" fill="none" stroke="${c[s.color]}" stroke-width="2.5"/>`,
     );
-    pts.forEach(([x, yy], i) => {
+    for (const [x, yy, v] of pts) {
       out.push(`<circle cx="${x.toFixed(1)}" cy="${yy.toFixed(1)}" r="4.5" fill="${c[s.color]}" stroke="#fff" stroke-width="1.5"/>`);
-      const v = s.values[i];
-      if (s.showValues && v !== undefined) out.push(text(x, yy - 10, formatByCode(v, fmt), "middle", c.text, 11, 700));
-    });
+      if (s.showValues) out.push(text(x, yy - 10, formatByCode(v, fmt), "middle", c.text, 11, 700));
+    }
   }
   // Category labels.
   spec.categories.forEach((cat, ci) => {

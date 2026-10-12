@@ -67,7 +67,24 @@ Text is plain text (no HTML, no Markdown); it is escaped. Russian typography (no
 - `table`: `{columns: [{header, align, width?}], rows: [[{text, tone?, bold?}]], totalRow?}`
   - up to ~7 rows and 5 columns; only the rows the conclusion needs
 
-`tone` is `positive` | `negative` | `neutral`. `color` is a theme token.
+### `chart` — one wide chart; `table` — one wide table
+
+- `title`, optional `subtitle`, `chart` or `table` as above (wide tables: up to ~9 rows, 6 columns),
+  optional `callout`
+
+### `cost_structure` — what a total consists of and how each part changed
+
+- `total?`: `{label, value}`; `items`: 3–7 `{label, value, share, shareText, change?, changeTone?}`
+  sorted by size; `share` (percent) sets the segment width
+- optional `callout`
+
+### `risks_decisions` — "Риски и решения"
+
+- `risks` and `decisions`: 2–4 points each, `{title, text}`; `title` ≤ 1 line, `text` ≤ 3 lines
+- optional `risksTitle` / `decisionsTitle` (default «Риски» / «Решения»)
+
+`tone` is `positive` | `negative` | `neutral`. `color` is a theme token. A chart value may be
+`null` (no data): it is drawn as a gap, never as zero.
 
 ## Theme
 

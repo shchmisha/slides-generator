@@ -12,7 +12,7 @@ from app.facts.models import (
     Column,
     ColumnRef,
     Derived,
-    DerivedRef,
+    NameRef,
     Quantity,
     Ref,
     Row,
@@ -40,7 +40,7 @@ def _suggest(wanted: str, options: list[str]) -> str:
 class FactStore:
     def __init__(self, tables: list[Table]) -> None:
         self._tables = {t.id: t for t in tables}
-        self._derived: dict[str, Derived] = {}
+        self._derived: dict[str, Derived] = {}  # named values and operation results
 
     @property
     def tables(self) -> list[Table]:
@@ -52,8 +52,11 @@ class FactStore:
 
     def add_derived(self, derived: Derived) -> None:
         if derived.id in self._derived:
-            raise FactError(f"Расчёт «{derived.id}» уже есть: выберите другой id")
+            raise FactError(f"Имя «{derived.id}» уже занято: выберите другое")
         self._derived[derived.id] = derived
+
+    def has_name(self, name: str) -> bool:
+        return name in self._derived
 
     # ------------------------------------------------------------------------ lookup
 
@@ -102,13 +105,12 @@ class FactStore:
 
     def resolve(self, ref: Ref) -> Quantity | Series:
         match ref:
-            case DerivedRef():
+            case NameRef():
                 try:
-                    return self._derived[ref.derived].result
+                    return self._derived[ref.name].result
                 except KeyError:
-                    raise FactError(
-                        f"Нет расчёта «{ref.derived}». Есть: {', '.join(self._derived) or 'нет'}"
-                    ) from None
+                    known = ", ".join(self._derived) or "нет"
+                    raise FactError(f"Нет значения «{ref.name}». Есть: {known}") from None
             case CellRef():
                 table = self.table(ref.table)
                 row = self._row(table, ref.row)

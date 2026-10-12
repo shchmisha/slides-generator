@@ -69,7 +69,7 @@ def test_monthly_profit_and_margin_chain_across_tables(store: FactStore) -> None
 
     margin = run(store, {
         "id": "margin", "op": "percent_of", "label": "Маржа",
-        "part": {"derived": "profit"},
+        "part": {"name": "profit"},
         "whole": {"table": "t1", "row": "Итого по компании",
                   "cols": ["Июль факт", "Август факт", "Сентябрь факт"]},
     })  # fmt: skip
@@ -107,7 +107,7 @@ def test_complaints_per_thousand_orders(store: FactStore) -> None:
     })  # fmt: skip
     result = run(store, {
         "id": "per_1000", "op": "scale", "label": "Жалоб на 1000 заказов", "factor": 1000,
-        "a": {"derived": "complaint_rate"}, "unit": "на 1000 заказов",
+        "a": {"name": "complaint_rate"}, "unit": "на 1000 заказов",
     })  # fmt: skip
     assert isinstance(result, Series)
     assert {i.key: i.quantity.formatted() for i in result.items}["Юг"] == "9,2\u00a0на 1000 заказов"
@@ -139,7 +139,7 @@ def test_division_by_zero_is_a_warning_not_a_crash(store: FactStore) -> None:
     run(store, {"id": "zero", "op": "difference", "label": "Ноль", "a": plan, "b": plan})
     derived = evaluate(OPERATION.validate_python({
         "id": "ratio_zero", "op": "ratio", "label": "Деление на ноль",
-        "a": cell("t1", "Север", "Итого факт"), "b": {"derived": "zero"},
+        "a": cell("t1", "Север", "Итого факт"), "b": {"name": "zero"},
     }), store)  # fmt: skip
     assert derived.result.value is None  # type: ignore[union-attr]
     assert "деление на ноль" in derived.warnings[0]
@@ -160,7 +160,7 @@ def test_unknown_reference_and_duplicate_id_are_errors(store: FactStore) -> None
             "of": [{"table": "t1", "col": "Итого факт"}],
         },
     )
-    with pytest.raises(FactError, match="уже есть"):
+    with pytest.raises(FactError, match="уже занято"):
         run(
             store,
             {
@@ -182,9 +182,9 @@ def test_sum_of_series_matches_the_total_row(store: FactStore) -> None:
 @pytest.mark.parametrize(
     "spec",
     [
-        {"id": "Bad Id", "op": "sum", "label": "x", "of": [{"derived": "a"}]},
+        {"id": "Bad Id", "op": "sum", "label": "x", "of": [{"name": "a"}]},
         {"id": "x", "op": "eval", "label": "x", "code": "__import__('os')"},
-        {"id": "x", "op": "scale", "label": "x", "a": {"derived": "a"}, "factor": -1},
+        {"id": "x", "op": "scale", "label": "x", "a": {"name": "a"}, "factor": -1},
         {
             "id": "x",
             "op": "sum",

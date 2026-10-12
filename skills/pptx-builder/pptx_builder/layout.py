@@ -112,7 +112,7 @@ class ImageElement(_Model):
 
 class ChartSeries(_Model):
     name: str
-    values: list[float]
+    values: list[float | None]  # None = no data: a gap in the chart, never a zero
     kind: Literal["bar", "line"]
     axis: Literal["primary", "secondary"] = "primary"
     color: ColorToken

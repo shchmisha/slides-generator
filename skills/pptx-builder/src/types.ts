@@ -44,7 +44,8 @@ export interface KeyTakeawaysSlide {
 
 export interface ChartSeries {
   name: string;
-  values: number[];
+  /** null = no data for this category (drawn as a gap, never as zero). */
+  values: (number | null)[];
   kind: "bar" | "line";
   axis?: "primary" | "secondary";
   color: ColorToken;
@@ -91,7 +92,69 @@ export interface ChartTableSlide {
   callout?: string;
 }
 
-export type SlideSpec = KeyTakeawaysSlide | ChartTableSlide;
+/** Full-width table with an optional callout. */
+export interface TableSlide {
+  type: "table";
+  title: string;
+  subtitle?: string;
+  table: TableSpec;
+  callout?: string;
+}
+
+/** Full-width chart with an optional callout. */
+export interface ChartSlide {
+  type: "chart";
+  title: string;
+  subtitle?: string;
+  chart: ChartSpec;
+  callout?: string;
+}
+
+export interface CostItem {
+  label: string;
+  /** Formatted amount, e.g. "1 147". */
+  value: string;
+  /** Share of the total in percent; sets the segment width. */
+  share: number;
+  shareText: string;
+  /** Formatted change over the period, e.g. "+56 % за квартал". */
+  change?: string;
+  changeTone?: Tone;
+}
+
+/** Diagram: what the total consists of (proportional bar) and how each part changed. */
+export interface CostStructureSlide {
+  type: "cost_structure";
+  title: string;
+  subtitle?: string;
+  total?: { label: string; value: string };
+  items: CostItem[];
+  callout?: string;
+}
+
+export interface Point {
+  title: string;
+  text: string;
+}
+
+/** Two columns: what worries us and what we propose. */
+export interface RisksDecisionsSlide {
+  type: "risks_decisions";
+  title: string;
+  subtitle?: string;
+  risksTitle?: string;
+  decisionsTitle?: string;
+  risks: Point[];
+  decisions: Point[];
+}
+
+export type SlideSpec =
+  | KeyTakeawaysSlide
+  | ChartTableSlide
+  | TableSlide
+  | ChartSlide
+  | CostStructureSlide
+  | RisksDecisionsSlide;
 
 export interface DeckSpec {
   title: string;

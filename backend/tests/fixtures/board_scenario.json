@@ -1,0 +1,194 @@
+{
+  "kind": "deck",
+  "title": "Отчёт правлению за 3 квартал",
+  "footer": "Условная Компания · Отчёт правлению за 3 квартал",
+  "values": {
+    "rev_fact": {"table": "t1", "row": "Итого по компании", "col": "Итого факт"},
+    "rev_plan": {"table": "t1", "row": "Итого по компании", "col": "Итого план"},
+    "rev_last_year": {"table": "t4", "row": "Итого по компании", "col": "Итого"},
+    "fact_by_region": {"table": "t1", "col": "Итого факт"},
+    "plan_by_region": {"table": "t1", "col": "Итого план"},
+    "fact_by_month": {"table": "t1", "row": "Итого по компании", "cols": ["Июль факт", "Август факт", "Сентябрь факт"]},
+    "plan_by_month": {"table": "t1", "row": "Итого по компании", "cols": ["Июль план", "Август план", "Сентябрь план"]},
+    "last_year_by_month": {"table": "t4", "row": "Итого по компании", "cols": ["Июль", "Август", "Сентябрь"]},
+    "ural_fact": {"table": "t1", "row": "Урал", "cols": ["Июль факт", "Август факт", "Сентябрь факт"]},
+    "ural_plan": {"table": "t1", "row": "Урал", "cols": ["Июль план", "Август план", "Сентябрь план"]},
+    "costs_total": {"table": "t2", "row": "Итого затрат", "col": "Итого"},
+    "costs_by_month": {"table": "t2", "row": "Итого затрат", "cols": ["Июль", "Август", "Сентябрь"]},
+    "cost_items": {"table": "t2", "col": "Итого"},
+    "cost_jul": {"table": "t2", "col": "Июль"},
+    "cost_sep": {"table": "t2", "col": "Сентябрь"},
+    "orders": {"table": "t3", "col": "Заказов, шт."},
+    "on_time": {"table": "t3", "col": "Доставка в срок, %"},
+    "nps": {"table": "t3", "col": "NPS"},
+    "complaints": {"table": "t3", "col": "Жалоб, шт."}
+  },
+  "derived": [
+    {"id": "deviation", "op": "difference", "label": "Отклонение от плана", "a": {"name": "fact_by_region"}, "b": {"name": "plan_by_region"}},
+    {"id": "deviation_total", "op": "difference", "label": "Отклонение от плана, всего", "a": {"name": "rev_fact"}, "b": {"name": "rev_plan"}},
+    {"id": "completion", "op": "percent_of", "label": "Выполнение плана", "part": {"name": "fact_by_region"}, "whole": {"name": "plan_by_region"}},
+    {"id": "completion_total", "op": "percent_of", "label": "Выполнение плана, всего", "part": {"name": "rev_fact"}, "whole": {"name": "rev_plan"}},
+    {"id": "over_plan", "op": "percent_change", "label": "Перевыполнение плана", "new": {"name": "rev_fact"}, "old": {"name": "rev_plan"}},
+    {"id": "yoy", "op": "percent_change", "label": "Рост выручки к 3 кварталу прошлого года", "new": {"name": "rev_fact"}, "old": {"name": "rev_last_year"}},
+    {"id": "ural_deviation", "op": "difference", "label": "Урал: отклонение от плана", "a": {"name": "ural_fact"}, "b": {"name": "ural_plan"}},
+    {"id": "profit_by_month", "op": "difference", "label": "Прибыль", "a": {"name": "fact_by_month"}, "b": {"name": "costs_by_month"}},
+    {"id": "margin_by_month", "op": "percent_of", "label": "Маржа", "part": {"name": "profit_by_month"}, "whole": {"name": "fact_by_month"}},
+    {"id": "profit_total", "op": "difference", "label": "Прибыль за квартал", "a": {"name": "rev_fact"}, "b": {"name": "costs_total"}},
+    {"id": "margin_total", "op": "percent_of", "label": "Маржа за квартал", "part": {"name": "profit_total"}, "whole": {"name": "rev_fact"}},
+    {"id": "cost_change", "op": "percent_change", "label": "Изменение затрат: сентябрь к июлю", "new": {"name": "cost_sep"}, "old": {"name": "cost_jul"}},
+    {"id": "complaint_rate", "op": "ratio", "label": "Жалоб на заказ", "a": {"name": "complaints"}, "b": {"name": "orders"}},
+    {"id": "complaints_per_1000", "op": "scale", "label": "Жалоб на 1000 заказов", "a": {"name": "complaint_rate"}, "factor": 1000}
+  ],
+  "slides": [
+    {
+      "type": "key_takeaways",
+      "title": "Главное за 3 квартал",
+      "subtitle": "Июль–сентябрь · источник цифр: q3_metrics.xlsx",
+      "kpis": [
+        {"label": "Выручка за квартал", "value": "rev_fact", "delta": "{over_plan:+} к плану", "tone": "positive"},
+        {"label": "Рост к прошлому году", "value": "yoy", "delta": "{rev_last_year} → {rev_fact}"},
+        {"label": "Прибыль: выручка минус затраты", "value": "profit_total", "delta": "маржа {margin_total}"},
+        {"label": "Урал: выполнение плана", "value": "completion", "key": "Урал", "delta": "отклонение {deviation[Урал]}", "tone": "negative"}
+      ],
+      "takeaways": [
+        "План по выручке перевыполнен на {over_plan}: {rev_fact} при плане {rev_plan}. Рост к прошлому году — {yoy}, оценка из комментария завышена.",
+        "Урал — единственный филиал ниже плана: {completion[Урал]}, отклонение {deviation[Урал]}.",
+        "Маржа просела в августе до {margin_by_month[Август]} и восстановилась в сентябре до {margin_by_month[Сентябрь]}; быстрее всего растёт маркетинг ({cost_change[Маркетинг]:+}).",
+        "Доставка в срок хуже всего в Сибири ({on_time[Сибирь]}) и на Урале ({on_time[Урал]}); NPS Сибири в таблице нет."
+      ]
+    },
+    {
+      "type": "chart_table",
+      "title": "Выручка по филиалам: план выполнен на {completion_total}",
+      "subtitle": "Факт против плана за квартал, млн ₽",
+      "chart": {
+        "caption": "Выручка за квартал, млн ₽",
+        "series": [
+          {"name": "План", "value": "plan_by_region", "color": "grid"},
+          {"name": "Факт", "value": "fact_by_region", "color": "primary", "show_values": true}
+        ]
+      },
+      "table": {
+        "row_header": "Филиал",
+        "columns": [
+          {"header": "План", "value": "plan_by_region", "total": "rev_plan"},
+          {"header": "Факт", "value": "fact_by_region", "total": "rev_fact"},
+          {"header": "Откл.", "value": "deviation", "signed": true, "tone_by_sign": true, "total": "deviation_total"},
+          {"header": "Вып., %", "value": "completion", "highlight": "lowest", "total": "completion_total"}
+        ]
+      },
+      "callout": "Урал не выполнил план в июле ({ural_fact[Июль факт]} при плане {ural_plan[Июль план]}) и в сентябре ({ural_fact[Сентябрь факт]} при плане {ural_plan[Сентябрь план]})."
+    },
+    {
+      "type": "chart_table",
+      "title": "Урал: недобор в июле и сентябре",
+      "subtitle": "Выручка филиала по месяцам, млн ₽",
+      "chart": {
+        "series": [
+          {"name": "План", "value": "ural_plan", "color": "grid"},
+          {"name": "Факт", "value": "ural_fact", "color": "primary", "show_values": true}
+        ]
+      },
+      "table": {
+        "row_header": "Месяц",
+        "columns": [
+          {"header": "План", "value": "ural_plan"},
+          {"header": "Факт", "value": "ural_fact"},
+          {"header": "Откл.", "value": "ural_deviation", "signed": true, "tone_by_sign": true}
+        ]
+      },
+      "callout": "В августе Урал был выше плана: {ural_fact[Август факт]} при плане {ural_plan[Август план]}."
+    },
+    {
+      "type": "chart",
+      "title": "Выручка выше прошлого года в каждом месяце",
+      "subtitle": "Выручка компании по месяцам, млн ₽",
+      "chart": {
+        "series": [
+          {"name": "Прошлый год", "value": "last_year_by_month", "color": "grid"},
+          {"name": "План", "value": "plan_by_month", "color": "muted"},
+          {"name": "Факт", "value": "fact_by_month", "color": "primary", "show_values": true}
+        ]
+      },
+      "callout": "За квартал выручка выросла на {yoy}: {rev_fact} против {rev_last_year} годом ранее."
+    },
+    {
+      "type": "chart_table",
+      "title": "Прибыль по месяцам: просадка в августе",
+      "subtitle": "Выручка и затраты, млн ₽; маржа — прибыль к выручке",
+      "chart": {
+        "caption": "Выручка и затраты, млн ₽ · маржа, %",
+        "series": [
+          {"name": "Выручка", "value": "fact_by_month", "color": "primary"},
+          {"name": "Затраты", "value": "costs_by_month", "color": "grid"},
+          {"name": "Маржа, %", "value": "margin_by_month", "kind": "line", "axis": "secondary", "color": "accent", "show_values": true}
+        ]
+      },
+      "table": {
+        "row_header": "Месяц",
+        "columns": [
+          {"header": "Выручка", "value": "fact_by_month", "total": "rev_fact"},
+          {"header": "Затраты", "value": "costs_by_month", "total": "costs_total"},
+          {"header": "Прибыль", "value": "profit_by_month", "total": "profit_total"},
+          {"header": "Маржа, %", "value": "margin_by_month", "highlight": "lowest", "total": "margin_total"}
+        ]
+      },
+      "callout": "Маржа за квартал — {margin_total}; в августе затраты росли быстрее выручки."
+    },
+    {
+      "type": "cost_structure",
+      "title": "Затраты: почти половина — ФОТ, быстрее всего растёт маркетинг",
+      "subtitle": "Затраты за квартал по статьям; изменение — сентябрь к июлю",
+      "amounts": "cost_items",
+      "change": "cost_change",
+      "total_label": "Всего затрат",
+      "callout": "Маркетинг вырос с {cost_jul[Маркетинг]} в июле до {cost_sep[Маркетинг]} в сентябре, топливо — с {cost_jul[Топливо]} до {cost_sep[Топливо]}."
+    },
+    {
+      "type": "table",
+      "title": "Сервис: Сибирь и Урал отстают по доставке и жалобам",
+      "subtitle": "Операционные показатели за 3 квартал",
+      "table": {
+        "row_header": "Филиал",
+        "columns": [
+          {"header": "Заказов, шт.", "value": "orders"},
+          {"header": "Доставка в срок, %", "value": "on_time", "highlight": "lowest"},
+          {"header": "NPS", "value": "nps", "highlight": "lowest"},
+          {"header": "Жалоб, шт.", "value": "complaints"},
+          {"header": "Жалоб на 1000 заказов", "value": "complaints_per_1000", "highlight": "highest"}
+        ]
+      },
+      "callout": "NPS Сибири в таблице не заполнен — сравнить его с другими филиалами нельзя."
+    },
+    {
+      "type": "chart",
+      "title": "Где ниже доставка в срок, там больше жалоб",
+      "subtitle": "Жалоб на 1000 заказов и доля доставок в срок по филиалам",
+      "chart": {
+        "series": [
+          {"name": "Жалоб на 1000 заказов", "value": "complaints_per_1000", "color": "primary", "show_values": true},
+          {"name": "Доставка в срок, %", "value": "on_time", "kind": "line", "axis": "secondary", "color": "accent", "show_values": true}
+        ]
+      },
+      "callout": "Сибирь: {complaints_per_1000[Сибирь]} жалобы на 1000 заказов и {on_time[Сибирь]} доставок в срок."
+    },
+    {
+      "type": "risks_decisions",
+      "title": "Риски и решения",
+      "subtitle": "Что тревожит и что предлагаем сделать",
+      "risks": [
+        {"title": "Урал ниже плана", "text": "Выполнение {completion[Урал]}: недобор в июле и сентябре."},
+        {"title": "Сервис в Сибири", "text": "Доставка в срок {on_time[Сибирь]}, жалоб {complaints_per_1000[Сибирь]} на 1000 заказов — худшие в сети."},
+        {"title": "Маркетинг дорожает", "text": "Расходы на маркетинг выросли на {cost_change[Маркетинг]} за квартал."}
+      ],
+      "decisions": [
+        {"title": "План действий для Урала", "text": "Разобрать июль и сентябрь по клиентам и каналам продаж, вернуть план в следующем квартале."},
+        {"title": "Логистика Сибири", "text": "Провести аудит маршрутов и сроков доставки, ежемесячно отчитываться правлению."},
+        {"title": "Окупаемость маркетинга", "text": "Привязать бюджет к приросту заказов и пересмотреть каналы с низкой отдачей."}
+      ]
+    }
+  ],
+  "claims": [
+    {"source": "manager_comments.docx", "quote": "По моим ощущениям, рост к прошлому году составил около 12%.", "value": "yoy"}
+  ]
+}
