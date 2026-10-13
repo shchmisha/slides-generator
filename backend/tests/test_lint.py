@@ -105,8 +105,25 @@ def test_video_lint_allows_words_the_source_uses() -> None:
     scenes = [
         {"duration_s": 13, "narration": "Отключение услуги бесплатно, без дополнительных расходов.",
          "visual": {"type": "statement", "heading": "Без дополнительных расходов"}},
-    ] * 5  # fmt: skip
+    ] * 4 + [
+        {"duration_s": 13, "narration": "Отправьте скан доверенности на почту.",
+         "visual": {"type": "steps",
+                    "items": ["Подпишите доверенность", "Скан — на ETRN@dellin.ru"]}},
+    ]  # fmt: skip
     video = VideoScenario.model_validate(
         {"kind": "video", "title": "Суперсервис", "scenes": scenes}
     )
     assert lint_video(video, (FIXTURES / "superservice_text.txt").read_text()) == []
+
+
+def test_video_lint_needs_the_source_address_and_known_abbreviations() -> None:
+    scenes = [
+        {"duration_s": 13, "narration": "Документы ДЛ приходят на почту.",
+         "visual": {"type": "statement", "heading": "Документы на почту"}},
+    ] * 5  # fmt: skip
+    video = VideoScenario.model_validate(
+        {"kind": "video", "title": "Суперсервис", "scenes": scenes}
+    )
+    found = " ".join(lint_video(video, (FIXTURES / "superservice_text.txt").read_text()))
+    assert "ETRN@dellin.ru" in found
+    assert "сокращения ДЛ" in found

@@ -191,8 +191,8 @@ class _SlideResolver:
         return value
 
     def keys(self, first: Series, wanted: list[str] | None, path: str) -> list[str]:
-        if wanted is None:
-            return [item.key for item in first.items]
+        if wanted is None:  # total rows are shown in the table's total row, not as categories
+            return [item.key for item in first.items if not item.total]
         keys = []
         for key in wanted:
             found = series_item(first, key)
@@ -362,12 +362,23 @@ class _SlideResolver:
             for row, q in zip(cells, quantities, strict=True):
                 row.append(_cell(q, spec, marked))
 
-        has_total = any(c.total for c in table.columns)
+        # The total row: an explicit total name, else the series' own total item
+        # (e.g. completion by region carries «Итого по компании» = 101,5 %).
+        totals: list[Quantity | None] = []
+        for i, (spec, data) in enumerate(zip(table.columns, columns, strict=True)):
+            if spec.total:
+                totals.append(self.scalar(spec.total, f"{path}.columns[{i}].total"))
+            else:
+                totals.append(next((t.quantity for t in data.items if t.total), None))
+        # An automatic total only when all rows are shown: a company total under a subset of
+        # regions would not add up. An explicit total is always shown.
+        explicit = any(c.total for c in table.columns)
+        automatic = table.rows is None and any(q is not None for q in totals)
+        has_total = explicit or automatic
         if has_total:
             total_label = self.text(table.total_label, f"{path}.total_label") or ""
             total_row = [rd.TableCell(text=total_label)]
-            for i, spec in enumerate(table.columns):
-                q = self.scalar(spec.total, f"{path}.columns[{i}].total") if spec.total else None
+            for spec, q in zip(table.columns, totals, strict=True):
                 total_row.append(_cell(q, spec, None) if q else rd.TableCell(text=""))
             cells.append(total_row)
 
@@ -386,10 +397,12 @@ class _SlideResolver:
     def cost_structure(self, slide: sc.CostStructure, path: str) -> rd.CostStructureSlide | None:
         amounts = self.series(slide.amounts, f"{path}.amounts")
         change = self.series(slide.change, f"{path}.change") if slide.change else None
+        change_label = change.label if change is not None else None
         if amounts is None:
             return None
-        items = [i for i in amounts.items if i.quantity.value is not None]
-        if len(items) != len(amounts.items):
+        parts = [i for i in amounts.items if not i.total]
+        items = [i for i in parts if i.quantity.value is not None]
+        if len(items) != len(parts):
             self.warnings.append(f"{path}: статьи без данных не показаны")
         total = sum(i.quantity.value or 0 for i in items)
         if total <= 0:
@@ -420,6 +433,7 @@ class _SlideResolver:
                 value=format_quantity(total, amounts.unit, decimals),
             ),
             items=out,
+            change_label=change_label,
             callout=self.text(slide.callout, f"{path}.callout"),
         )
 
@@ -502,6 +516,8 @@ def _note_row(note: Note) -> list[rd.TableCell] | None:
     where = note.source.split(" › ")[-1] if note.location is None else note.location
     if note.kind == "quarantine":
         quoted = note.message.partition("не использовано: ")[2] or note.message
+        # Figures from a planted paragraph are not repeated on a slide, even as a quote.
+        quoted = re.sub(r"\d", "•", quoted)
         return [
             rd.TableCell(text=_shorten(where, 60)),
             rd.TableCell(text=f"Указание для модели в тексте: {_shorten(quoted, 70)}"),

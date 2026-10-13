@@ -16,6 +16,9 @@ MIN_TOTAL_S = 60
 MAX_TOTAL_S = 75
 # Calm Russian narration is about 2.3 words per second; allow a little more before failing.
 MAX_WORDS_PER_SECOND = 2.6
+# Russian words are long: a calm voice says about 4–5 syllables a second.
+MAX_SYLLABLES_PER_SECOND = 5.0
+_VOWELS = re.compile("[аеёиоуыэюяАЕЁИОУЫЭЮЯ]")
 
 
 class _Model(BaseModel):
@@ -62,6 +65,12 @@ def check_video(
         errors.append(f"Общая длительность {total:g} с, а нужно {min_total_s:g}–{max_total_s:g} с")
     allowed = _numbers(source_text)
     for i, scene in enumerate(scenario.scenes):
+        syllables = len(_VOWELS.findall(scene.narration))
+        if syllables > scene.duration_s * MAX_SYLLABLES_PER_SECOND:
+            errors.append(
+                f"scenes[{i}].narration: {syllables} слогов не сказать спокойно за "
+                f"{scene.duration_s:g} с — сократи текст, а не только длительность"
+            )
         words = len(scene.narration.split())
         if words > scene.duration_s * MAX_WORDS_PER_SECOND:
             errors.append(
@@ -84,11 +93,15 @@ def check_video(
     return errors
 
 
+_ABBREVIATION = re.compile(r"\b[А-ЯЁ]{2,5}\b")
+_ADDRESS = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+|https?://\S+")
+
 # Ad clichés and claims the brief rules out unless the source itself says them.
 _AD_WORDS = re.compile(
     r"\b(хотите|знакомьтесь|присоединяйтесь|подключайтесь (?:сегодня|сейчас|скорее)"
     r"|спецпредложени\w*|скидк\w*|навсегда|комисси\w*|экономьте|экономи\w* времени|комфорт\w*"
-    r"|уже с нами|почему выбирают|лучш\w*|выгодн\w*|уникальн\w*|не упустите|успейте)\b",
+    r"|уже с нами|почему выбирают|лучш\w*|выгодн\w*|уникальн\w*|не упустите|успейте"
+    r"|автоматическ\w*)\b",
     re.IGNORECASE,
 )
 
@@ -109,4 +122,19 @@ def lint_video(scenario: VideoScenario, source_text: str) -> list[str]:
                 )
         if "!" in joined:
             findings.append(f"scenes[{i}]: восклицательный знак — тон должен быть спокойным")
+        unknown = sorted({a for a in _ABBREVIATION.findall(joined) if a not in source_text})
+        if unknown:
+            findings.append(
+                f"scenes[{i}]: сокращения {', '.join(unknown)} — в тексте их нет; пиши словами"
+            )
+    everything = " ".join(
+        " ".join([s.narration, s.visual.heading or "", s.visual.caption or "", *s.visual.items])
+        for s in scenario.scenes
+    )
+    for address in _ADDRESS.findall(source_text):
+        if address not in everything:
+            findings.append(
+                f"адрес «{address}» из текста не попал в ролик: без него шаг не выполнить — "
+                "покажи его на экране в сцене с этим шагом"
+            )
     return findings

@@ -6,6 +6,7 @@ Errors name the closest existing labels, so the agent can correct a reference in
 from __future__ import annotations
 
 import difflib
+import re
 
 from app.facts.models import (
     CellRef,
@@ -21,6 +22,8 @@ from app.facts.models import (
     SeriesItem,
     Table,
 )
+
+TOTAL_LABEL = re.compile(r"^(итого|всего|total)\b", re.IGNORECASE)
 
 
 class FactError(ValueError):
@@ -125,7 +128,11 @@ class FactStore:
                     else [(i, c) for i, c in enumerate(table.columns) if c.numeric]
                 )
                 items = [
-                    SeriesItem(key=c.label, quantity=self._quantity(table, row, i, c))
+                    SeriesItem(
+                        key=c.label,
+                        quantity=self._quantity(table, row, i, c),
+                        total=bool(TOTAL_LABEL.match(c.label)),
+                    )
                     for i, c in columns
                 ]
                 return Series(
@@ -137,10 +144,14 @@ class FactStore:
                 rows = (
                     [self._row(table, label) for label in ref.rows]
                     if ref.rows is not None
-                    else [r for r in table.rows if not r.is_total]
+                    else table.rows
                 )
                 items = [
-                    SeriesItem(key=r.label, quantity=self._quantity(table, r, index, column))
+                    SeriesItem(
+                        key=r.label,
+                        quantity=self._quantity(table, r, index, column),
+                        total=r.is_total,
+                    )
                     for r in rows
                 ]
                 return Series(

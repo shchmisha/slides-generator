@@ -23,6 +23,14 @@ _NUMBER_WORDS = re.compile(
     re.IGNORECASE,
 )
 MAX_FREE_NUMBER = 12
+# "вырос на {x}", "отстал от плана на {x}": the verb already says the direction, so the value
+# is shown without its sign ("вырос на 55,6 %", not "вырос на +55,6 %").
+_DIRECTION_BEFORE = re.compile(
+    r"(вырос\w*|выросл\w*|увелич\w*|сниз\w*|сократ\w*|уменьш\w*|упал\w*|отстал\w*"
+    r"|превысил\w*|превзош\w*|недобра\w*|прибав\w*|потерял\w*|подорож\w*|подешев\w*)"
+    r"(?:\s+[^\s{}]+){0,3}?\s+на\s*$",
+    re.IGNORECASE,
+)
 
 
 def _words(label: str) -> list[str]:
@@ -77,27 +85,26 @@ def render_text(
 ) -> str:
     """Replace placeholders with formatted facts; report unknown names and typed numbers."""
 
-    def replace(match: re.Match[str]) -> str:
-        name, key, signed = match.group(1), match.group(2), bool(match.group(3))
+    def quantity(match: re.Match[str]) -> Quantity | None:
+        name, key = match.group(1), match.group(2)
         try:
             resolved = store.resolve(NameRef(name=name))
         except FactError as exc:
             errors.append(f"{path}: {exc}")
-            return match.group(0)
+            return None
         if isinstance(resolved, Series):
             if key is None:
                 keys = ", ".join(i.key for i in resolved.items)
                 errors.append(f"{path}: «{name}» — ряд, укажите элемент: {{{name}[ключ]}} ({keys})")
-                return match.group(0)
+                return None
             item = series_item(resolved, key)
             if item is None:
                 keys = ", ".join(i.key for i in resolved.items)
                 errors.append(f"{path}: в «{name}» нет «{key}». Есть: {keys}")
-                return match.group(0)
-            return item.formatted(signed=signed)
+            return item
         if key is not None:
             errors.append(f"{path}: «{name}» — одно значение, ключ [{key}] не нужен")
-        return resolved.formatted(signed=signed)
+        return resolved
 
     typed = typed_numbers(text, rate_bases)
     if typed:
@@ -112,4 +119,24 @@ def render_text(
         errors.append(
             f"{path}: непонятная подстановка — формат {{имя}}, {{имя[ключ]}} или {{имя:+}}"
         )
-    return PLACEHOLDER.sub(replace, text)
+    out: list[str] = []
+    pos = 0
+    for match in PLACEHOLDER.finditer(text):
+        out.append(text[pos : match.start()])
+        pos = match.end()
+        q = quantity(match)
+        if q is None:
+            out.append(match.group(0))
+            continue
+        before = "".join(out)
+        if _DIRECTION_BEFORE.search(before) and q.value is not None:
+            out.append(q.model_copy(update={"value": abs(q.value)}).formatted())
+        else:
+            out.append(q.formatted(signed=bool(match.group(3))))
+        # The unit is already part of the value: drop it if the text repeats it ("87,2 % %").
+        if q.unit and q.value is not None:
+            repeated = re.match(r"[ \u00a0]*" + re.escape(q.unit) + r"(?![\w%])", text[pos:])
+            if repeated:
+                pos += repeated.end()
+    out.append(text[pos:])
+    return "".join(out)

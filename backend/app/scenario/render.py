@@ -117,6 +117,7 @@ class CostStructureSlide(_Spec):
     subtitle: str | None = None
     total: CostTotal | None = None
     items: list[CostItem]
+    change_label: str | None = None  # what the change compares: "Изменение затрат: сентябрь к июлю"
     callout: str | None = None
 
 

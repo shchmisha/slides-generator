@@ -29,7 +29,8 @@ _GAP_WORDS = re.compile(
 )
 _TREND = re.compile(
     r"\b(раст[её]т|растут|рост\w*|вырос\w*|снижа\w*|сниз\w*|пада\w*|упал\w*|ухудш\w*|улучш\w*"
-    r"|деград\w*|просел\w*|просед\w*|просадк\w*|увеличи\w*|уменьши\w*|динамик\w*)",
+    r"|деград\w*|просел\w*|просед\w*|просадк\w*|увеличи\w*|уменьши\w*|динамик\w*"
+    r"|стабильн\w*|сохраня\w*|по-прежнему|оста[её]тся|восстанов\w*|вернул\w*)",
     re.IGNORECASE,
 )
 # A sentence comparing with something explicit is not a trend claim about one period.

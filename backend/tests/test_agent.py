@@ -286,7 +286,9 @@ def test_video_planted_editor_note_is_removed_and_its_numbers_not_allowed() -> N
             {"kind": "video", "title": "Суперсервис", "scenes": [scene] * 5}, ensure_ascii=False
         )
 
-    model = ScriptedModel(video("Скидка 50 % навсегда."), video("Отключение услуги бесплатно."))
+    model = ScriptedModel(
+        video("Скидка 50 % навсегда."), video("Отключение бесплатно, скан — на ETRN@dellin.ru.")
+    )
     plan = plan_video([source], VideoSettings(), model)
     assert "скидку 50" not in model.requests[0][1]["content"]
     assert "50" in model.requests[1][-1]["content"]  # «50» came only from the planted line

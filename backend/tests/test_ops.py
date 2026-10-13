@@ -87,7 +87,7 @@ def test_cost_structure_shares_sum_to_100(store: FactStore) -> None:
         "part": {"table": "t2", "col": "Итого"},
     })  # fmt: skip
     assert isinstance(result, Series)
-    assert sum(i.quantity.value or 0 for i in result.items) == pytest.approx(100)
+    assert sum(i.quantity.value or 0 for i in result.items if not i.total) == pytest.approx(100)
     assert {i.key: i.quantity.formatted() for i in result.items}["ФОТ"] == "45,6\u00a0%"
 
 
@@ -224,3 +224,13 @@ def test_scale_accepts_only_powers_of_ten(factor: float) -> None:
         OPERATION.validate_python(
             {"id": "x", "op": "scale", "label": "x", "a": {"name": "a"}, "factor": factor}
         )
+
+
+def test_totals_flow_through_calculations(store: FactStore) -> None:
+    result = run(store, {
+        "id": "completion", "op": "percent_of", "label": "Выполнение плана",
+        "part": {"table": "t1", "col": "Итого факт"}, "whole": {"table": "t1", "col": "Итого план"},
+    })  # fmt: skip
+    assert isinstance(result, Series)
+    total = next(i for i in result.items if i.total)
+    assert (total.key, total.quantity.formatted()) == ("Итого по компании", "101,5\u00a0%")

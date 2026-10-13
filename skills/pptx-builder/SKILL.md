@@ -75,7 +75,8 @@ Text is plain text (no HTML, no Markdown); it is escaped. Russian typography (no
 ### `cost_structure` — what a total consists of and how each part changed
 
 - `total?`: `{label, value}`; `items`: 3–7 `{label, value, share, shareText, change?, changeTone?}`
-  sorted by size; `share` (percent) sets the segment width
+  sorted by size; `share` (percent) sets the segment width; `changeLabel?` says what the change
+  compares («Изменение затрат: сентябрь к июлю»)
 - optional `callout`
 
 ### `risks_decisions` — "Риски и решения"

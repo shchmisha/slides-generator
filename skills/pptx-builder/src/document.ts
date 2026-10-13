@@ -87,6 +87,7 @@ html,body{background:#d9dce1}
 /* cost_structure */
 .cs-total{flex:none;font-size:16px;line-height:22px;color:var(--muted);margin-bottom:12px}
 .cs-total-value{color:var(--text)}
+.cs-change-label{color:var(--muted)}
 .cs-bar{flex:none;display:flex;gap:3px;height:76px}
 .cs-seg{position:relative;min-width:6px;border-radius:4px}
 .cs-seg-text{position:absolute;left:12px;right:8px;top:12px;font-size:16px;line-height:20px;font-weight:700;

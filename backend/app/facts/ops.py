@@ -141,35 +141,36 @@ class _Evaluation:
         if isinstance(a, Series) and isinstance(b, Quantity):
             for item in a.items:
                 q = self.pair(item.quantity, b, kernel, f"{label} › {item.key}")
-                items.append(SeriesItem(key=item.key, quantity=q))
+                items.append(SeriesItem(key=item.key, quantity=q, total=item.total))
         elif isinstance(a, Quantity) and isinstance(b, Series):
             for item in b.items:
                 q = self.pair(a, item.quantity, kernel, f"{label} › {item.key}")
-                items.append(SeriesItem(key=item.key, quantity=q))
+                items.append(SeriesItem(key=item.key, quantity=q, total=item.total))
         elif isinstance(a, Series) and isinstance(b, Series):
-            for key, x, y in self.align(a, b):
+            for key, x, y, is_total in self.align(a, b):
                 item_label = f"{label} › {key}"
                 if y is None:
                     q = self.missing(item_label, None, 0, f"в «{b.label}» нет «{key}»")
                 else:
                     q = self.pair(x, y, kernel, item_label)
-                items.append(SeriesItem(key=key, quantity=q))
+                items.append(SeriesItem(key=key, quantity=q, total=is_total))
         return _series(label, items)
 
-    def align(self, a: Series, b: Series) -> list[tuple[str, Quantity, Quantity | None]]:
+    def align(self, a: Series, b: Series) -> list[tuple[str, Quantity, Quantity | None, bool]]:
         """Pair the items of two series: by label, or by position when the labels differ
-        but the lengths match ("Июль факт" in one table, "Июль" in another)."""
+        but the lengths match ("Июль факт" in one table, "Июль" in another). The last element
+        says whether the pair is a total row/column."""
         others = {normalize_label(item.key): item.quantity for item in b.items}
         if all(normalize_label(item.key) in others for item in a.items):
-            return [(i.key, i.quantity, others[normalize_label(i.key)]) for i in a.items]
+            return [(i.key, i.quantity, others[normalize_label(i.key)], i.total) for i in a.items]
         if len(a.items) == len(b.items):
             pairs = list(zip(a.items, b.items, strict=True))
             self.warnings.append(
                 "Ряды сопоставлены по порядку: "
                 + ", ".join(f"«{x.key}» ↔ «{y.key}»" for x, y in pairs)
             )
-            return [(_common_key(x.key, y.key), x.quantity, y.quantity) for x, y in pairs]
-        return [(i.key, i.quantity, others.get(normalize_label(i.key))) for i in a.items]
+            return [(_common_key(x.key, y.key), x.quantity, y.quantity, x.total) for x, y in pairs]
+        return [(i.key, i.quantity, others.get(normalize_label(i.key)), i.total) for i in a.items]
 
     def total(self, quantities: list[Quantity], label: str) -> Quantity:
         units = {q.unit for q in quantities}
@@ -206,20 +207,22 @@ def _series(label: str, items: list[SeriesItem]) -> Series:
 def _sum(op: SumOp, store: FactStore, ev: _Evaluation) -> Resolved:
     resolved = [store.resolve(ref) for ref in op.of]
     if len(resolved) == 1 and isinstance(resolved[0], Series):
-        return ev.total([item.quantity for item in resolved[0].items], op.label)
+        body = [item.quantity for item in resolved[0].items if not item.total]
+        return ev.total(body, op.label)
     if all(isinstance(r, Quantity) for r in resolved):
         return ev.total([r for r in resolved if isinstance(r, Quantity)], op.label)
     if all(isinstance(r, Series) for r in resolved):
         first, *rest = [r for r in resolved if isinstance(r, Series)]
         keys = [item.key for item in first.items]
+        totals = [item.total for item in first.items]
         columns: list[list[Quantity | None]] = [[item.quantity for item in first.items]]
         for other in rest:
             aligned = ev.align(first, other)
             keys = [
                 key if len(key) < len(old) else old
-                for (key, _, _), old in zip(aligned, keys, strict=True)
+                for (key, _, _, _), old in zip(aligned, keys, strict=True)
             ]
-            columns.append([y for _, _, y in aligned])
+            columns.append([y for _, _, y, _ in aligned])
         items = []
         for i, key in enumerate(keys):
             parts = [column[i] for column in columns]
@@ -229,7 +232,7 @@ def _sum(op: SumOp, store: FactStore, ev: _Evaluation) -> Resolved:
                 q = ev.missing(item_label, None, 0, f"«{key}» есть не во всех рядах")
             else:
                 q = ev.total(present, item_label)
-            items.append(SeriesItem(key=key, quantity=q))
+            items.append(SeriesItem(key=key, quantity=q, total=totals[i]))
         return _series(op.label, items)
     raise FactError("sum: нельзя смешивать отдельные значения и ряды")
 
@@ -237,8 +240,9 @@ def _sum(op: SumOp, store: FactStore, ev: _Evaluation) -> Resolved:
 def _mean(op: MeanOp, of: Resolved, ev: _Evaluation) -> Quantity:
     if not isinstance(of, Series):
         raise FactError("mean считается только для ряда значений")
-    present = [i.quantity for i in of.items if i.quantity.value is not None]
-    skipped = [i.key for i in of.items if i.quantity.value is None]
+    rows = [i for i in of.items if not i.total]
+    present = [i.quantity for i in rows if i.quantity.value is not None]
+    skipped = [i.key for i in rows if i.quantity.value is None]
     if skipped:
         ev.warnings.append(f"«{op.label}»: без «{', '.join(skipped)}» — нет данных")
     decimals = (
@@ -258,11 +262,13 @@ def _mean(op: MeanOp, of: Resolved, ev: _Evaluation) -> Quantity:
 def _share_of_total(op: ShareOp, part: Resolved, ev: _Evaluation) -> Resolved:
     if not isinstance(part, Series):
         raise FactError("share без whole считается только для ряда значений")
-    total = ev.total([item.quantity for item in part.items], f"{op.label}: сумма")
+    parts = [item.quantity for item in part.items if not item.total]
+    total = ev.total(parts, f"{op.label}: сумма")
     items = [
         SeriesItem(
             key=item.key,
             quantity=ev.pair(item.quantity, total, PERCENT_OF, f"{op.label} › {item.key}"),
+            total=item.total,
         )
         for item in part.items
     ]

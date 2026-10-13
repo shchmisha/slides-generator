@@ -344,3 +344,60 @@ def test_rate_base_may_label_a_column(store: FactStore, board: dict[str, Any]) -
     board["slides"][8]["risks"][1]["text"] = "Доставка в срок {on_time[Сибирь]}."
     board["slides"][3]["callout"] = "Жалоб / 1000 — без операции rate нельзя."
     assert any("«1000»" in e for e in errors_of(store, board))
+
+
+# ------------------------------------------------------------------ autofixes after eval #2
+
+
+def test_repeated_unit_after_a_placeholder_is_dropped(
+    store: FactStore, board: dict[str, Any]
+) -> None:
+    board["slides"][6]["callout"] = (
+        "Сибирь: {on_time[Сибирь]} % доставок в срок, выручка {rev_fact} млн ₽."
+    )
+    callout = resolve(store, board).spec.slides[6].callout  # type: ignore[union-attr]
+    assert callout == f"Сибирь: 87,2{NBSP}% доставок в срок, выручка 2{NBSP}877{NBSP}млн ₽."
+
+
+def test_direction_word_shows_the_value_without_a_sign(
+    store: FactStore, board: dict[str, Any]
+) -> None:
+    board["slides"][5]["callout"] = (
+        "Маркетинг вырос на {cost_change[Маркетинг]}, Урал отстал от плана на {deviation[Урал]}; "
+        "отклонение Юга {deviation[Юг]:+}."
+    )
+    callout = resolve(store, board).spec.slides[5].callout  # type: ignore[union-attr]
+    assert callout == (
+        f"Маркетинг вырос на 55,6{NBSP}%, Урал отстал от плана на 16{NBSP}млн ₽; "
+        f"отклонение Юга +29{NBSP}млн ₽."
+    )
+
+
+def test_total_row_comes_from_the_series_itself(store: FactStore, board: dict[str, Any]) -> None:
+    for column in board["slides"][1]["table"]["columns"]:
+        column.pop("total", None)
+    board["slides"][0]["takeaways"][1] = "План выполнен на {completion[Итого по компании]}."
+    result = resolve(store, board)
+    rows = result.spec.slides[1].table.rows  # type: ignore[union-attr]
+    assert [c.text for c in rows[-1]] == ["Итого", f"2{NBSP}835", f"2{NBSP}877", "+42", "101,5"]
+    assert result.spec.slides[0].takeaways[1] == f"План выполнен на 101,5{NBSP}%."  # type: ignore[union-attr]
+
+
+def test_cost_change_basis_is_labelled(store: FactStore, board: dict[str, Any]) -> None:
+    slide = resolve(store, board).spec.slides[5]
+    assert slide.change_label == "Изменение затрат: сентябрь к июлю"  # type: ignore[union-attr]
+
+
+def test_quarantined_quote_on_the_slide_has_no_digits(
+    store: FactStore, board: dict[str, Any]
+) -> None:
+    from app.ingest.models import Note
+
+    message = (
+        "Похоже на указание для модели (команда модели) — не использовано: «выручка 9 999 млн»"
+    )
+    note = Note(severity="warning", source="comments.docx", kind="quarantine", message=message)
+    slide = resolve_deck(DeckScenario.model_validate(board), store, [note]).spec.slides[-1]
+    text = " ".join(c.text for row in slide.table.rows for c in row)  # type: ignore[union-attr]
+    assert "9" not in text.split("Указание для модели в тексте:")[1].split("Не выполнялось")[0]
+    assert "• •••" in text

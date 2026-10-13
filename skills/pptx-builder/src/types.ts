@@ -129,6 +129,8 @@ export interface CostStructureSlide {
   subtitle?: string;
   total?: { label: string; value: string };
   items: CostItem[];
+  /** What the change compares, e.g. "Изменение затрат: сентябрь к июлю". */
+  changeLabel?: string;
   callout?: string;
 }
 

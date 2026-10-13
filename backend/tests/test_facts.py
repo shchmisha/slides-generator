@@ -103,7 +103,9 @@ def test_broken_total_is_flagged() -> None:
 def test_series_references(client_facts: tuple[FactStore, list[Note]]) -> None:
     store, _ = client_facts
     by_region = store.resolve(ColumnRef(table="t1", col="Итого факт"))
-    assert [i.key for i in by_region.items] == ["Север", "Юг", "Центр", "Урал", "Сибирь"]  # type: ignore[union-attr]
+    keys = [(i.key, i.total) for i in by_region.items]  # type: ignore[union-attr]
+    assert keys == [("Север", False), ("Юг", False), ("Центр", False), ("Урал", False),
+                    ("Сибирь", False), ("Итого по компании", True)]  # fmt: skip
     months = store.resolve(RowRef(table="t2", row="Маркетинг", cols=["Июль", "Сентябрь"]))
     assert [i.quantity.value for i in months.items] == [45, 70]  # type: ignore[union-attr]
 

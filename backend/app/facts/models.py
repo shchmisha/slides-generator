@@ -75,7 +75,8 @@ class RowRef(_Frozen):
 
 
 class ColumnRef(_Frozen):
-    """A column as a series over its rows (all rows except totals when `rows` is omitted)."""
+    """A column as a series over its rows (all rows when `rows` is omitted; total rows are
+    flagged, so charts and tables leave them out and calculations carry them)."""
 
     table: str
     col: str
@@ -108,6 +109,9 @@ class Quantity(_Frozen):
 class SeriesItem(_Frozen):
     key: str  # row or column label: "Урал", "Июль факт"
     quantity: Quantity
+    # A total row ("Итого по компании") or total column ("Итого"): carried through calculations,
+    # so {completion[Итого по компании]} exists, but left out of charts, rankings and sums.
+    total: bool = False
 
 
 class Series(_Frozen):

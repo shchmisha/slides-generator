@@ -30,7 +30,9 @@ export function renderCostStructure(slide: CostStructureSlide, ctx: RenderContex
     <div class="body cs">
       ${slide.total
         ? html`<p class="cs-total" data-pptx="text">
-            ${slide.total.label}: <b class="cs-total-value">${slide.total.value}</b>
+            ${slide.total.label}: <b class="cs-total-value">${slide.total.value}</b>${slide.changeLabel
+              ? html`<span class="cs-change-label"> · ${slide.changeLabel}</span>`
+              : ""}
           </p>`
         : ""}
       <div class="cs-bar">
