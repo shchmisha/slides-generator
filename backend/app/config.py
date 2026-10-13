@@ -40,9 +40,19 @@ class Settings(BaseSettings):
     llm_timeout_s: float = Field(default=240, gt=0)
     llm_max_tokens: int = Field(default=16_000, ge=1_000)
 
+    # Session cookie. Secure=true behind HTTPS; the local `docker compose up` serves plain HTTP.
+    cookie_secure: bool = False
+    session_days: int = Field(default=14, ge=1, le=90)
+
     # Hard limits from the brief: up to 5 concurrent generations, 10 files, 20 MB each.
     max_files_per_project: int = Field(default=10, ge=1)
     max_upload_bytes: int = Field(default=20 * 1024 * 1024, ge=1)
+    # Our own caps so one account cannot fill the disk.
+    max_projects_per_user: int = Field(default=100, ge=1)
+    max_bytes_per_user: int = Field(default=1024 * 1024 * 1024, ge=1)
+
+    # Swagger UI and the OpenAPI schema: handy locally, a map of the API for anyone otherwise.
+    enable_api_docs: bool = False
 
 
 @lru_cache

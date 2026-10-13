@@ -12,5 +12,6 @@ RUN npm run build
 # ---- serve with nginx as a non-root user (uid 101), port 8080 ----
 FROM nginxinc/nginx-unprivileged:1.29-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY api_proxy.conf /etc/nginx/api_proxy.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 8080

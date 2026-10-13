@@ -1,9 +1,12 @@
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api import health
+from app.api import auth, health, projects
+from app.api.errors import describe_errors
+from app.auth.deps import require_csrf_header
 from app.config import get_settings
 from app.log_config import configure_logging
 
@@ -11,17 +14,24 @@ logger = logging.getLogger(__name__)
 
 
 def create_app() -> FastAPI:
-    configure_logging(get_settings().log_level)
+    settings = get_settings()
+    configure_logging(settings.log_level)
 
+    docs = settings.enable_api_docs  # off unless ENABLE_API_DOCS=true: a map of the API
     app = FastAPI(
         title="Slides Generator API",
-        # Interactive docs are useful locally but are an information leak in production;
-        # they stay under /api so nginx can expose or hide them in one place.
-        docs_url="/api/docs",
-        openapi_url="/api/openapi.json",
+        docs_url="/api/docs" if docs else None,
+        openapi_url="/api/openapi.json" if docs else None,
         redoc_url=None,
     )
     app.include_router(health.router, prefix="/api")
+    csrf = [Depends(require_csrf_header)]
+    app.include_router(auth.router, prefix="/api", dependencies=csrf)
+    app.include_router(projects.router, prefix="/api", dependencies=csrf)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, exc: RequestValidationError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": describe_errors(exc.errors())})
 
     @app.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:

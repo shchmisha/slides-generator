@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Response, status
@@ -63,9 +65,14 @@ def health(
     return result
 
 
-@router.get("/workers", response_model=WorkersOut)
-def workers(response: Response) -> WorkersOut:
-    """How many live workers consume each queue. Lets the UI warn before a job would hang."""
+# A broadcast to the workers waits up to a second for replies. One request per interval asks;
+# everyone else gets the cached answer, so polling UIs cannot tie up the API's threads.
+WORKERS_CACHE_S = 10.0
+_workers_lock = threading.Lock()
+_workers_cache: tuple[float, dict[str, int]] | None = None
+
+
+def _inspect_queues() -> dict[str, int]:
     queues = {QUEUE_AI: 0, QUEUE_RENDER: 0}
     try:
         replies = celery_app.control.inspect(timeout=1.0).active_queues() or {}
@@ -76,6 +83,21 @@ def workers(response: Response) -> WorkersOut:
         for queue in worker_queues:
             if queue["name"] in queues:
                 queues[queue["name"]] += 1
+    return queues
+
+
+def _queues() -> dict[str, int]:
+    global _workers_cache
+    with _workers_lock:
+        if _workers_cache is None or time.monotonic() - _workers_cache[0] > WORKERS_CACHE_S:
+            _workers_cache = (time.monotonic(), _inspect_queues())
+        return dict(_workers_cache[1])
+
+
+@router.get("/workers", response_model=WorkersOut)
+def workers(response: Response) -> WorkersOut:
+    """How many live workers consume each queue. Lets the UI warn before a job would hang."""
+    queues = _queues()
     ok = all(count > 0 for count in queues.values())
     if not ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

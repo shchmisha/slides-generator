@@ -22,6 +22,11 @@ def redis() -> MagicMock:
     return MagicMock()
 
 
+@pytest.fixture(autouse=True)
+def fresh_worker_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.api.health._workers_cache", None)
+
+
 @pytest.fixture
 def client(db: MagicMock, redis: MagicMock) -> Iterator[TestClient]:
     app = create_app()
@@ -74,6 +79,21 @@ def test_workers_missing_render_worker(client: TestClient, monkeypatch: pytest.M
     resp = client.get("/api/health/workers")
     assert resp.status_code == 503
     assert resp.json()["queues"]["render"] == 0
+
+
+def test_workers_answer_is_cached(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    inspector = MagicMock()
+    inspector.active_queues.return_value = {"ai@host": [{"name": "ai"}, {"name": "render"}]}
+    calls = []
+
+    def inspect(timeout: float) -> MagicMock:
+        calls.append(timeout)
+        return inspector
+
+    monkeypatch.setattr("app.api.health.celery_app.control.inspect", inspect)
+    for _ in range(5):
+        assert client.get("/api/health/workers").status_code == 200
+    assert len(calls) == 1
 
 
 def test_unhandled_error_does_not_leak_details() -> None:

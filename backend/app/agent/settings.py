@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Language = Literal["ru", "en"]
 Tone = Literal["business", "neutral", "friendly"]
@@ -30,3 +30,9 @@ class VideoSettings(BaseModel):
     max_seconds: int = Field(default=75, ge=20, le=300)
     language: Language = "ru"
     tone: Tone = "friendly"
+
+    @model_validator(mode="after")
+    def _range(self) -> "VideoSettings":
+        if self.min_seconds > self.max_seconds:
+            raise ValueError("min_seconds больше max_seconds")
+        return self

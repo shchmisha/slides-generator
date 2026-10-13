@@ -40,7 +40,11 @@ services:
     restart: unless-stopped
 
   redis:
+    <<: *hardening
     image: redis:7-alpine
+    # The command starts with `sh`, so the image's entrypoint would not drop root by itself.
+    # Nothing is persisted (--save "" --appendonly no), so the file system can be read-only.
+    user: "999:1000"
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       REDISCLI_AUTH: ${REDIS_PASSWORD}
@@ -50,7 +54,6 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
-    restart: unless-stopped
 
   # Applies database migrations once, then exits; the API starts only after it succeeds.
   migrate:
@@ -64,6 +67,15 @@ services:
   api:
     <<: *backend
     build: ./backend
+    environment:
+      <<: *backend-env
+      # Only nginx can reach the API (no published port), so its forwarded client IP is trusted.
+      FORWARDED_ALLOW_IPS: "*"
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ENABLE_API_DOCS: ${ENABLE_API_DOCS:-false}
+      # Empty means the default from app/config.py.
+      MAX_PROJECTS_PER_USER: ${MAX_PROJECTS_PER_USER:-}
+      MAX_BYTES_PER_USER: ${MAX_BYTES_PER_USER:-}
     # Our images exist only locally: build (cached) instead of trying to pull them.
     pull_policy: build
     depends_on:
