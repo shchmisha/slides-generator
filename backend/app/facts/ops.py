@@ -15,10 +15,12 @@ from app.facts.format import MISSING_TEXT, format_number
 from app.facts.models import (
     Derived,
     DifferenceOp,
+    MeanOp,
     Operation,
     PercentChangeOp,
     PercentOfOp,
     Quantity,
+    RateOp,
     RatioOp,
     ScaleOp,
     Series,
@@ -83,6 +85,15 @@ def _ratio(unit: str | None) -> _Kernel:
         formula=lambda x, y, r: f"{x} / {y} = {r}",
         unit=lambda _x, _y: unit,
         decimals=lambda _x, _y: 2,
+    )
+
+
+def _rate(per: int, unit: str | None) -> _Kernel:
+    return _Kernel(
+        compute=lambda x, y: x / y * per,
+        formula=lambda x, y, r: f"{x} / {y} × {format_number(per)} = {r}",
+        unit=lambda _x, _y: unit,
+        decimals=_one,
     )
 
 
@@ -223,6 +234,27 @@ def _sum(op: SumOp, store: FactStore, ev: _Evaluation) -> Resolved:
     raise FactError("sum: нельзя смешивать отдельные значения и ряды")
 
 
+def _mean(op: MeanOp, of: Resolved, ev: _Evaluation) -> Quantity:
+    if not isinstance(of, Series):
+        raise FactError("mean считается только для ряда значений")
+    present = [i.quantity for i in of.items if i.quantity.value is not None]
+    skipped = [i.key for i in of.items if i.quantity.value is None]
+    if skipped:
+        ev.warnings.append(f"«{op.label}»: без «{', '.join(skipped)}» — нет данных")
+    decimals = (
+        op.decimals
+        if op.decimals is not None
+        else max((q.decimals for q in present), default=0) + 1
+    )
+    if not present:
+        return ev.missing(op.label, of.unit, decimals, f"нет данных — {of.label}")
+    value = sum(q.value for q in present if q.value is not None) / len(present)
+    result = Quantity(value=value, unit=of.unit, decimals=decimals, label=op.label, origin="")
+    shown = " + ".join(_shown(q) for q in present)
+    formula = f"({shown}) / {len(present)} = {result.formatted()}"
+    return result.model_copy(update={"origin": formula})
+
+
 def _share_of_total(op: ShareOp, part: Resolved, ev: _Evaluation) -> Resolved:
     if not isinstance(part, Series):
         raise FactError("share без whole считается только для ряда значений")
@@ -267,6 +299,10 @@ def evaluate(op: Operation, store: FactStore) -> Derived:
                 origin="константа",
             )
             result = ev.apply(store.resolve(op.a), factor, _scale(op.unit))
+        case RateOp():
+            result = ev.apply(store.resolve(op.a), store.resolve(op.b), _rate(op.per, op.unit))
+        case MeanOp():
+            result = _mean(op, store.resolve(op.of), ev)
     derived = Derived(id=op.id, label=op.label, op=op.op, result=result, warnings=ev.warnings)
     store.add_derived(derived)
     return derived

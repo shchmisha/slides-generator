@@ -24,6 +24,9 @@ class Note(BaseModel):
     source: str  # file name, or "file › sheet"
     location: str | None = None  # cell address or row/column labels
     message: str
+    # "quarantine": text removed as an instruction to the model. Its message quotes that text
+    # for the user, so it is never shown to the model.
+    kind: Literal["data", "quarantine"] = "data"
 
 
 class Block(BaseModel):

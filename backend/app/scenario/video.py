@@ -82,3 +82,31 @@ def check_video(
         if visual.type in ("bullets", "steps", "comparison") and len(visual.items) < 2:
             errors.append(f"scenes[{i}].visual: для {visual.type} нужно 2–5 пунктов в items")
     return errors
+
+
+# Ad clichés and claims the brief rules out unless the source itself says them.
+_AD_WORDS = re.compile(
+    r"\b(хотите|знакомьтесь|присоединяйтесь|подключайтесь (?:сегодня|сейчас|скорее)"
+    r"|спецпредложени\w*|скидк\w*|навсегда|комисси\w*|экономьте|экономи\w* времени|комфорт\w*"
+    r"|уже с нами|почему выбирают|лучш\w*|выгодн\w*|уникальн\w*|не упустите|успейте)\b",
+    re.IGNORECASE,
+)
+
+
+def lint_video(scenario: VideoScenario, source_text: str) -> list[str]:
+    """Soft findings: ad wording, exclamations and claims the source does not make."""
+    source = source_text.casefold()
+    findings = []
+    for i, scene in enumerate(scenario.scenes):
+        visual = scene.visual
+        texts = [scene.narration, visual.heading or "", visual.caption or "", *visual.items]
+        joined = " ".join(texts)
+        for match in _AD_WORDS.finditer(joined):
+            if match.group(0).casefold() not in source:
+                findings.append(
+                    f"scenes[{i}]: «{match.group(0)}» — рекламный штамп или то, чего нет в тексте. "
+                    "Пиши спокойно и только о том, что сказано в источнике"
+                )
+        if "!" in joined:
+            findings.append(f"scenes[{i}]: восклицательный знак — тон должен быть спокойным")
+    return findings

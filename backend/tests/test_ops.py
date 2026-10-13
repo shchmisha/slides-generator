@@ -196,3 +196,31 @@ def test_sum_of_series_matches_the_total_row(store: FactStore) -> None:
 def test_operations_are_a_closed_set(spec: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         OPERATION.validate_python(spec)
+
+
+def test_rate_per_thousand(store: FactStore) -> None:
+    result = run(store, {
+        "id": "rate", "op": "rate", "label": "Жалоб на 1000 заказов", "per": 1000,
+        "a": {"table": "t3", "col": "Жалоб, шт."}, "b": {"table": "t3", "col": "Заказов, шт."},
+    })  # fmt: skip
+    assert isinstance(result, Series)
+    siberia = next(i.quantity for i in result.items if i.key == "Сибирь")
+    assert siberia.formatted() == "13,9"
+    assert siberia.origin == "470 / 33 900 × 1 000 = 13,9"
+
+
+def test_mean_skips_missing_values_with_a_warning(store: FactStore) -> None:
+    derived = evaluate(OPERATION.validate_python({
+        "id": "nps_mean", "op": "mean", "label": "Средний NPS", "of": {"table": "t3", "col": "NPS"},
+    }), store)  # fmt: skip
+    assert isinstance(derived.result, Quantity)
+    assert derived.result.formatted() == "50,3"  # (52 + 47 + 58 + 44) / 4 = 50,25
+    assert "Сибирь" in derived.warnings[0]
+
+
+@pytest.mark.parametrize("factor", [3.4755, 2, 0.5, 999])
+def test_scale_accepts_only_powers_of_ten(factor: float) -> None:
+    with pytest.raises(ValidationError, match="перевод единиц"):
+        OPERATION.validate_python(
+            {"id": "x", "op": "scale", "label": "x", "a": {"name": "a"}, "factor": factor}
+        )

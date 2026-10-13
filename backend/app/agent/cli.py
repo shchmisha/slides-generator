@@ -60,13 +60,19 @@ def main(argv: list[str] | None = None) -> int:
             (args.out / "deck_spec.json").write_text(plan.resolved.spec.to_json(), encoding="utf-8")
             summary: dict[str, object] = {
                 "claims": [asdict(c) for c in plan.resolved.claims],
-                "warnings": plan.resolved.warnings,
+                "warnings": plan.warnings,
+                "notes": [n.model_dump() for n in plan.notes],
+                "slides": len(plan.resolved.spec.slides),
             }
             scenario_json = plan.scenario.model_dump_json(indent=1)
             attempts = plan.attempts
         else:
             video = plan_video(documents, VideoSettings(), model)
-            summary = {"seconds": sum(scene.duration_s for scene in video.scenario.scenes)}
+            summary = {
+                "seconds": sum(scene.duration_s for scene in video.scenario.scenes),
+                "warnings": video.warnings,
+                "notes": [n.model_dump() for n in video.notes],
+            }
             scenario_json = video.scenario.model_dump_json(indent=1)
             attempts = video.attempts
     except PlanningError as exc:

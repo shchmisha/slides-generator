@@ -88,7 +88,9 @@ def normalize(raw: RawTable, table_id: str) -> tuple[Table, list[Note]]:
             else:
                 cells.append(Cell(missing=True, text=str(raw_cell.value), address=raw_cell.address))
                 notes.append(
-                    _note("warning", raw, location, f"Не число: «{raw_cell.value}» — пропущено")
+                    _note(
+                        "warning", raw, location, f"Не число: «{_echo(raw_cell.value)}» — пропущено"
+                    )
                 )
         rows.append(Row(label=row_label, cells=cells, is_total=bool(_TOTAL.match(row_label))))
 
@@ -102,6 +104,12 @@ def normalize(raw: RawTable, table_id: str) -> tuple[Table, list[Note]]:
         rows=rows,
     )
     return table, notes + check_totals(table)
+
+
+def _echo(value: object, limit: int = 40) -> str:
+    """Cell text quoted back in a note, kept short: notes are shown to the model too."""
+    text = " ".join(str(value).split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 def _note(severity: Literal["info", "warning"], raw: RawTable, location: str, message: str) -> Note:

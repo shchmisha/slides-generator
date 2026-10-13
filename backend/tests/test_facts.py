@@ -126,5 +126,7 @@ def test_russian_formatting() -> None:
     assert format_number(-16, signed=True) == "\u221216"
     assert format_number(29, signed=True) == "+29"
     assert format_number(-0.04, 1) == "0,0"
+    assert format_number(50.25, 1) == "50,3"  # half up, not Python's banker's rounding
+    assert format_number(101.45, 1) == "101,5"
     assert format_quantity(2877, "млн ₽") == "2\u00a0877\u00a0млн ₽"
     assert format_quantity(None, "%") == "нет данных"

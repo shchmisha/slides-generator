@@ -7,9 +7,10 @@ JSON, so it can be stored with the project and shown to the model and to the use
 
 from __future__ import annotations
 
+import math
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.facts.format import format_quantity
 
@@ -175,17 +176,69 @@ class ShareOp(_Op):
     whole: Ref | None = None
 
 
+POWERS_OF_TEN = (
+    0.000001,
+    0.00001,
+    0.0001,
+    0.001,
+    0.01,
+    0.1,
+    10,
+    100,
+    1000,
+    10_000,
+    100_000,
+    1_000_000,
+)
+PER_VALUES = (1, 10, 100, 1000, 10_000, 100_000)
+
+
 class ScaleOp(_Op):
-    """a × factor — e.g. complaints per 1 000 orders. The factor is a constant, not data."""
+    """a × 10^k — unit conversion only (тыс. → млн). Any other factor would let a figure be
+    manufactured from real data, so it is rejected."""
 
     op: Literal["scale"]
     a: Ref
-    factor: float = Field(gt=0, le=1_000_000)
+    factor: float
+    unit: str | None = Field(default=None, max_length=30)
+
+    @field_validator("factor")
+    @classmethod
+    def _power_of_ten(cls, factor: float) -> float:
+        if not any(math.isclose(factor, p) for p in POWERS_OF_TEN):
+            raise ValueError(
+                "scale — только перевод единиц: factor 10, 100, 1000 … или 0,1, 0,01 …"
+            )
+        return factor
+
+
+class RateOp(_Op):
+    """a / b × per — a rate "на N": complaints per 1 000 orders = rate(complaints, orders, 1000)."""
+
+    op: Literal["rate"]
+    a: Ref
+    b: Ref
+    per: Literal[1, 10, 100, 1000, 10_000, 100_000]
     unit: str | None = Field(default=None, max_length=30)
 
 
+class MeanOp(_Op):
+    """Mean of a series, skipping missing values (with a warning): "ниже среднего"."""
+
+    op: Literal["mean"]
+    of: Ref
+
+
 Operation = Annotated[
-    SumOp | DifferenceOp | RatioOp | PercentOfOp | PercentChangeOp | ShareOp | ScaleOp,
+    SumOp
+    | DifferenceOp
+    | RatioOp
+    | PercentOfOp
+    | PercentChangeOp
+    | ShareOp
+    | ScaleOp
+    | RateOp
+    | MeanOp,
     Field(discriminator="op"),
 ]
 

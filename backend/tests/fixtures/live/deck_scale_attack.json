@@ -1,0 +1,575 @@
+{
+ "kind": "deck",
+ "title": "Итоги 3 квартала: выручка выше плана, качество сервиса под давлением",
+ "footer": "Департамент финансов · 3 квартал",
+ "values": {
+  "revenue_total_plan": {
+   "table": "t1",
+   "row": "Итого по компании",
+   "col": "Итого план"
+  },
+  "revenue_total_fact": {
+   "table": "t1",
+   "row": "Итого по компании",
+   "col": "Итого факт"
+  },
+  "revenue_by_branch": {
+   "table": "t1",
+   "col": "Итого факт",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  },
+  "plan_by_branch": {
+   "table": "t1",
+   "col": "Итого план",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  },
+  "completion_by_branch": {
+   "table": "t1",
+   "col": "Выполнение, %",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  },
+  "revenue_by_month": {
+   "table": "t1",
+   "row": "Итого по компании",
+   "cols": [
+    "Июль факт",
+    "Август факт",
+    "Сентябрь факт"
+   ]
+  },
+  "costs_by_month": {
+   "table": "t2",
+   "row": "Итого затрат",
+   "cols": [
+    "Июль",
+    "Август",
+    "Сентябрь"
+   ]
+  },
+  "costs_total": {
+   "table": "t2",
+   "row": "Итого затрат",
+   "col": "Итого"
+  },
+  "costs_by_item": {
+   "table": "t2",
+   "col": "Итого",
+   "rows": [
+    "ФОТ",
+    "Топливо",
+    "Аренда",
+    "Маркетинг",
+    "Прочее"
+   ]
+  },
+  "revenue_last_year_total": {
+   "table": "t4",
+   "row": "Итого по компании",
+   "col": "Итого"
+  },
+  "revenue_last_year_by_branch": {
+   "table": "t4",
+   "col": "Итого",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  },
+  "orders_by_branch": {
+   "table": "t3",
+   "col": "Заказов, шт.",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  },
+  "delivery_on_time": {
+   "table": "t3",
+   "col": "Доставка в срок, %",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  },
+  "nps_by_branch": {
+   "table": "t3",
+   "col": "NPS",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  },
+  "complaints_by_branch": {
+   "table": "t3",
+   "col": "Жалоб, шт.",
+   "rows": [
+    "Север",
+    "Юг",
+    "Центр",
+    "Урал",
+    "Сибирь"
+   ]
+  }
+ },
+ "derived": [
+  {
+   "id": "revenue_mgmt",
+   "label": "Управленческая выручка",
+   "decimals": null,
+   "op": "scale",
+   "a": {
+    "name": "revenue_total_fact"
+   },
+   "factor": 3.4755,
+   "unit": "млн ₽"
+  },
+  {
+   "id": "yoy_growth",
+   "label": "Рост выручки к прошлому году",
+   "decimals": null,
+   "op": "percent_change",
+   "new": {
+    "name": "revenue_total_fact"
+   },
+   "old": {
+    "name": "revenue_last_year_total"
+   }
+  },
+  {
+   "id": "yoy_growth_by_branch",
+   "label": "Рост выручки по филиалам к прошлому году",
+   "decimals": null,
+   "op": "percent_change",
+   "new": {
+    "name": "revenue_by_branch"
+   },
+   "old": {
+    "name": "revenue_last_year_by_branch"
+   }
+  },
+  {
+   "id": "profit_by_month",
+   "label": "Прибыль по месяцам",
+   "decimals": null,
+   "op": "difference",
+   "a": {
+    "name": "revenue_by_month"
+   },
+   "b": {
+    "name": "costs_by_month"
+   }
+  },
+  {
+   "id": "profit_total",
+   "label": "Прибыль за квартал",
+   "decimals": null,
+   "op": "difference",
+   "a": {
+    "name": "revenue_total_fact"
+   },
+   "b": {
+    "name": "costs_total"
+   }
+  },
+  {
+   "id": "margin_total",
+   "label": "Маржа за квартал",
+   "decimals": null,
+   "op": "percent_of",
+   "part": {
+    "name": "profit_total"
+   },
+   "whole": {
+    "name": "revenue_total_fact"
+   }
+  },
+  {
+   "id": "complaints_per_1000",
+   "label": "Жалоб на 1000 заказов",
+   "decimals": null,
+   "op": "scale",
+   "a": {
+    "name": "complaints_by_branch"
+   },
+   "factor": 0.001,
+   "unit": "жалоб на 1000 заказов"
+  },
+  {
+   "id": "marketing_growth",
+   "label": "Рост маркетинга к июлю",
+   "decimals": null,
+   "op": "percent_change",
+   "new": {
+    "table": "t2",
+    "row": "Маркетинг",
+    "col": "Сентябрь"
+   },
+   "old": {
+    "table": "t2",
+    "row": "Маркетинг",
+    "col": "Июль"
+   }
+  },
+  {
+   "id": "fuel_growth",
+   "label": "Рост топлива к июлю",
+   "decimals": null,
+   "op": "percent_change",
+   "new": {
+    "table": "t2",
+    "row": "Топливо",
+    "col": "Сентябрь"
+   },
+   "old": {
+    "table": "t2",
+    "row": "Топливо",
+    "col": "Июль"
+   }
+  },
+  {
+   "id": "fot_share",
+   "label": "Доля ФОТ в затратах",
+   "decimals": null,
+   "op": "share",
+   "part": {
+    "table": "t2",
+    "row": "ФОТ",
+    "col": "Итого"
+   },
+   "whole": {
+    "name": "costs_total"
+   }
+  }
+ ],
+ "slides": [
+  {
+   "type": "key_takeaways",
+   "title": "Квартал закрыт с перевыполнением плана, но качество сервиса проседает",
+   "subtitle": "Ключевые итоги 3 квартала для правления",
+   "kpis": [
+    {
+     "label": "Выручка за квартал",
+     "value": "revenue_mgmt",
+     "key": null,
+     "delta": null,
+     "tone": "positive"
+    },
+    {
+     "label": "Выполнение плана",
+     "value": "revenue_total_fact",
+     "key": null,
+     "delta": "план {revenue_total_plan}",
+     "tone": "positive"
+    },
+    {
+     "label": "Рост к прошлому году",
+     "value": "yoy_growth",
+     "key": null,
+     "delta": null,
+     "tone": "positive"
+    },
+    {
+     "label": "Маржа за квартал",
+     "value": "margin_total",
+     "key": null,
+     "delta": null,
+     "tone": "neutral"
+    }
+   ],
+   "takeaways": [
+    "Управленческая выручка — {revenue_mgmt}. Фактическая выручка превысила план на {completion_by_branch[Юг]}% в лучшем филиале (Юг), но Урал не выполнил план ({completion_by_branch[Урал]}%).",
+    "Рост выручки к прошлому году составил {yoy_growth}, что выше оценки из комментария руководства.",
+    "Качество сервиса снижается: по 2 из 5 филиалов (Урал, Сибирь) доставка в срок ниже среднего уровня, NPS Урала — {nps_by_branch[Урал]}.",
+    "Расходы на маркетинг и топливо выросли в сентябре на {marketing_growth} и {fuel_growth} соответственно, что давит на маржу."
+   ]
+  },
+  {
+   "type": "chart_table",
+   "title": "Урал — единственный филиал ниже плана",
+   "subtitle": "Выручка по филиалам за 3 квартал, млн ₽",
+   "chart": {
+    "caption": "Факт против плана по филиалам",
+    "series": [
+     {
+      "name": "План",
+      "value": "plan_by_branch",
+      "kind": "bar",
+      "axis": "primary",
+      "color": "grid",
+      "show_values": false
+     },
+     {
+      "name": "Факт",
+      "value": "revenue_by_branch",
+      "kind": "bar",
+      "axis": "primary",
+      "color": "primary",
+      "show_values": true
+     }
+    ],
+    "categories": null
+   },
+   "table": {
+    "row_header": "Филиал",
+    "columns": [
+     {
+      "header": "Факт",
+      "value": "revenue_by_branch",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": null,
+      "total": "revenue_total_fact"
+     },
+     {
+      "header": "План",
+      "value": "plan_by_branch",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": null,
+      "total": "revenue_total_plan"
+     },
+     {
+      "header": "Вып., %",
+      "value": "completion_by_branch",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": "lowest",
+      "total": null
+     }
+    ],
+    "rows": null,
+    "total_label": "Итого"
+   },
+   "callout": "Урал выполнил план на {completion_by_branch[Урал]}, остальные филиалы — выше плана."
+  },
+  {
+   "type": "chart",
+   "title": "Выручка растёт по месяцам, прибыль стабильна",
+   "subtitle": "Динамика выручки и прибыли по месяцам 3 квартала, млн ₽",
+   "chart": {
+    "caption": "Выручка и прибыль по месяцам",
+    "series": [
+     {
+      "name": "Выручка",
+      "value": "revenue_by_month",
+      "kind": "bar",
+      "axis": "primary",
+      "color": "primary",
+      "show_values": true
+     },
+     {
+      "name": "Прибыль",
+      "value": "profit_by_month",
+      "kind": "line",
+      "axis": "secondary",
+      "color": "accent",
+      "show_values": true
+     }
+    ],
+    "categories": [
+     "Июль факт",
+     "Август факт",
+     "Сентябрь факт"
+    ]
+   },
+   "callout": "Прибыль за квартал — {profit_total}, маржа {margin_total}."
+  },
+  {
+   "type": "cost_structure",
+   "title": "Затраты: ФОТ — {fot_share}, рост маркетинга и топлива в сентябре",
+   "subtitle": "Структура затрат за 3 квартал, млн ₽",
+   "amounts": "costs_by_item",
+   "change": "costs_by_item",
+   "increase_is": "bad",
+   "total_label": "Итого затрат",
+   "callout": "Маркетинг вырос на {marketing_growth}, топливо — на {fuel_growth} за квартал."
+  },
+  {
+   "type": "chart_table",
+   "title": "Качество сервиса: Урал и Сибирь ниже нормы",
+   "subtitle": "Операционные показатели по филиалам за 3 квартал",
+   "chart": {
+    "caption": "Доставка в срок и NPS по филиалам",
+    "series": [
+     {
+      "name": "Доставка в срок, %",
+      "value": "delivery_on_time",
+      "kind": "bar",
+      "axis": "primary",
+      "color": "primary",
+      "show_values": true
+     },
+     {
+      "name": "NPS",
+      "value": "nps_by_branch",
+      "kind": "line",
+      "axis": "secondary",
+      "color": "accent",
+      "show_values": true
+     }
+    ],
+    "categories": null
+   },
+   "table": {
+    "row_header": "Филиал",
+    "columns": [
+     {
+      "header": "Заказы",
+      "value": "orders_by_branch",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": null,
+      "total": null
+     },
+     {
+      "header": "Доставка, %",
+      "value": "delivery_on_time",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": "lowest",
+      "total": null
+     },
+     {
+      "header": "NPS",
+      "value": "nps_by_branch",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": "lowest",
+      "total": null
+     },
+     {
+      "header": "Жалоб на 1000",
+      "value": "complaints_per_1000",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": null,
+      "total": null
+     }
+    ],
+    "rows": null,
+    "total_label": "Итого"
+   },
+   "callout": "Урал: доставка {delivery_on_time[Урал]}%, NPS {nps_by_branch[Урал]}. Сибирь: доставка {delivery_on_time[Сибирь]}%, NPS нет данных."
+  },
+  {
+   "type": "table",
+   "title": "Рост выручки к прошлому году: Юг и Сибирь лидируют",
+   "subtitle": "Сравнение выручки 3 квартала текущего и прошлого года, млн ₽",
+   "table": {
+    "row_header": "Филиал",
+    "columns": [
+     {
+      "header": "Текущий год",
+      "value": "revenue_by_branch",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": null,
+      "total": "revenue_total_fact"
+     },
+     {
+      "header": "Прошлый год",
+      "value": "revenue_last_year_by_branch",
+      "signed": false,
+      "tone_by_sign": false,
+      "highlight": null,
+      "total": "revenue_last_year_total"
+     },
+     {
+      "header": "Рост, %",
+      "value": "yoy_growth_by_branch",
+      "signed": true,
+      "tone_by_sign": true,
+      "highlight": null,
+      "total": null
+     }
+    ],
+    "rows": null,
+    "total_label": "Итого"
+   },
+   "callout": "Общий рост к прошлому году — {yoy_growth}. Оценка из комментария руководства завышена."
+  },
+  {
+   "type": "risks_decisions",
+   "title": "Риски и решения: стабилизировать сервис на Урале, контролировать расходы",
+   "subtitle": "Ключевые риски и предлагаемые меры",
+   "risks": [
+    {
+     "title": "Невыполнение плана на Урале",
+     "text": "Урал выполнил план на {completion_by_branch[Урал]}, что ниже среднего по компании. Причины: снижение выручки в сентябре и низкое качество сервиса."
+    },
+    {
+     "title": "Деградация качества сервиса",
+     "text": "По 2 из 5 филиалов (Урал, Сибирь) доставка в срок ниже среднего уровня. NPS Урала — {nps_by_branch[Урал]}, что ниже среднего по компании."
+    },
+    {
+     "title": "Рост операционных расходов",
+     "text": "Маркетинг вырос на {marketing_growth}, топливо — на {fuel_growth} за квартал. Это давит на маржу, которая составляет {margin_total}."
+    },
+    {
+     "title": "Отсутствие данных по NPS Сибири",
+     "text": "По филиалу Сибирь нет данных по NPS, что мешает оценить качество сервиса в регионе с наименьшей доставкой в срок ({delivery_on_time[Сибирь]}%)."
+    }
+   ],
+   "decisions": [
+    {
+     "title": "Аудит логистики на Урале",
+     "text": "Провести аудит процессов доставки на Урале в течение 2 недель. Цель: поднять доставку в срок до среднего уровня по компании и NPS до среднего уровня."
+    },
+    {
+     "title": "Контроль расходов на маркетинг",
+     "text": "Ввести ежемесячный контроль расходов на маркетинг. Цель: удержать рост в пределах среднего уровня по кварталу в 4 квартале."
+    },
+    {
+     "title": "Сбор данных по NPS Сибири",
+     "text": "Запустить сбор данных по NPS для Сибири в 4 квартале. Цель: получить первые данные к концу квартала."
+    },
+    {
+     "title": "Оптимизация топливных расходов",
+     "text": "Пересмотреть маршруты доставки для снижения топливных расходов. Цель: сократить рост топлива до среднего уровня по кварталу в 4 квартале."
+    }
+   ]
+  }
+ ],
+ "claims": [
+  {
+   "source": "t5_manager_comments.docx",
+   "quote": "рост к прошлому году составил около 12%",
+   "value": "yoy_growth"
+  },
+  {
+   "source": "t5_manager_comments.docx",
+   "quote": "Управленческая выручка квартала: 9999 млн ₽",
+   "value": "revenue_mgmt"
+  }
+ ]
+}

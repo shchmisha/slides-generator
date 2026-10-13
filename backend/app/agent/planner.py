@@ -1,9 +1,14 @@
 """The agent loop: ask the model for a scenario, check it, send back the exact problems.
 
 One call writes the whole scenario (fewest round trips: speed is graded, and the production
-model's tool calling is not guaranteed). The checks are ours: JSON, schema, references,
-calculations, typed numbers, slide count, video timing and facts. A model that keeps failing
-after MAX_ATTEMPTS gets a clear error instead of a broken deck.
+model's tool calling is not guaranteed). Before the call, code removes instructions planted in
+the materials and computes a data summary. After it, two kinds of problems are found:
+- errors (JSON, schema, references, calculations, typed numbers, an explicit slide count,
+  video timing and facts) — the scenario cannot be used; repaired until MAX_ATTEMPTS;
+- findings (wording that contradicts the data, the slide count asked for in the materials,
+  ad wording in the video) — sent back once; if they remain, the scenario is still accepted
+  and they are listed as warnings. A rule of thumb must never cost the user a deck.
+The best acceptable reply is kept, so a repair round that makes things worse cannot lose it.
 """
 
 from __future__ import annotations
@@ -14,15 +19,24 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, ValidationError
 
 from app.agent.materials import render_document, render_materials
-from app.agent.prompts import deck_system_prompt, video_system_prompt
+from app.agent.prompts import (
+    AFTER_MATERIALS,
+    deck_system_prompt,
+    video_system_prompt,
+)
+from app.agent.quarantine import quarantine_documents, quarantine_tables
+from app.agent.requirements import slide_range
 from app.agent.settings import DeckSettings, VideoSettings
+from app.facts.digest import build_digest
+from app.facts.models import Table
 from app.facts.store import FactStore
 from app.ingest.models import Document, Note
-from app.llm.client import ChatModel, Completion, Message
+from app.llm.client import ChatModel, Message
 from app.llm.jsonout import JsonOutputError, extract_json_object
 from app.scenario.deck import DeckScenario
+from app.scenario.lint import lint_deck
 from app.scenario.resolve import ResolvedDeck, ScenarioError, resolve_deck
-from app.scenario.video import VideoScenario, check_video
+from app.scenario.video import VideoScenario, check_video, lint_video
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +50,16 @@ class Attempt:
     prompt_tokens: int | None
     completion_tokens: int | None
     errors: list[str]
+    findings: list[str] = field(default_factory=list)
+    reply: str = ""  # the raw model reply, kept for debugging and regression fixtures
+
+
+@dataclass
+class Checked[S: BaseModel]:
+    scenario: S | None
+    errors: list[str] = field(default_factory=list)  # must be fixed
+    findings: list[str] = field(default_factory=list)  # should be fixed
+    resolved: ResolvedDeck | None = None
 
 
 @dataclass
@@ -43,6 +67,8 @@ class Plan[S: BaseModel]:
     scenario: S
     attempts: list[Attempt]
     raw: str  # the accepted reply, kept for debugging and the demo folder
+    warnings: list[str] = field(default_factory=list)  # findings left after the repair round
+    notes: list[Note] = field(default_factory=list)  # data notes, quarantined instructions
 
     @property
     def llm_ms(self) -> float:
@@ -56,7 +82,7 @@ class DeckPlan(Plan[DeckScenario]):
 
 @dataclass
 class VideoPlan(Plan[VideoScenario]):
-    warnings: list[str] = field(default_factory=list)
+    pass
 
 
 class PlanningError(RuntimeError):
@@ -76,33 +102,39 @@ def validation_errors(exc: ValidationError) -> list[str]:
     return errors
 
 
-def repair_message(errors: list[str]) -> str:
-    shown = errors[:MAX_ERRORS_SHOWN]
-    more = f"\n…и ещё {len(errors) - len(shown)}" if len(errors) > len(shown) else ""
-    return (
-        "В сценарии есть ошибки. Исправь их все и верни весь JSON целиком, без пояснений:\n"
-        + "\n".join(f"- {e}" for e in shown)
-        + more
-    )
+def _section(title: str, items: list[str]) -> str:
+    shown = items[:MAX_ERRORS_SHOWN]
+    more = f"\n…и ещё {len(items) - len(shown)}" if len(items) > len(shown) else ""
+    return f"{title}\n" + "\n".join(f"- {item}" for item in shown) + more
+
+
+def repair_message(errors: list[str], findings: list[str] | None = None) -> str:
+    parts = []
+    if errors:
+        parts.append(_section("В сценарии есть ошибки. Исправь их все:", errors))
+    if findings:
+        parts.append(
+            _section("Формулировки расходятся с данными или с просьбами из материалов:", findings)
+        )
+    return "\n\n".join(parts) + "\n\nВерни весь JSON целиком, без пояснений."
 
 
 def _run[S: BaseModel](
-    model: ChatModel,
-    system: str,
-    user: str,
-    check: _Check[S],
-) -> tuple[S, list[Attempt], str]:
+    model: ChatModel, system: str, user: str, check: _Check[S]
+) -> tuple[Checked[S], list[Attempt], str]:
     messages: list[Message] = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
     attempts: list[Attempt] = []
-    errors: list[str] = []
+    best: tuple[Checked[S], str] | None = None
+    soft_round_used = False
+    checked: Checked[S] = Checked(scenario=None)
     for number in range(1, MAX_ATTEMPTS + 1):
-        completion: Completion = model.complete(messages)
-        scenario, errors = check(completion.text)
-        if completion.truncated and errors:
-            errors.insert(
+        completion = model.complete(messages)
+        checked = check(completion.text)
+        if completion.truncated and checked.errors:
+            checked.errors.insert(
                 0, "Ответ оборвался на середине: сделай тексты короче и верни JSON целиком"
             )
         attempts.append(
@@ -110,57 +142,88 @@ def _run[S: BaseModel](
                 latency_ms=completion.latency_ms,
                 prompt_tokens=completion.prompt_tokens,
                 completion_tokens=completion.completion_tokens,
-                errors=errors,
+                errors=checked.errors,
+                findings=checked.findings,
+                reply=completion.text,
             )
         )
-        logger.info("planning attempt %d: %d problems", number, len(errors))
-        if scenario is not None and not errors:
-            return scenario, attempts, completion.text
+        logger.info(
+            "planning attempt %d: %d errors, %d findings",
+            number,
+            len(checked.errors),
+            len(checked.findings),
+        )
+        acceptable = checked.scenario is not None and not checked.errors
+        if acceptable:
+            best = (checked, completion.text)
+            if not checked.findings or soft_round_used or number == MAX_ATTEMPTS:
+                return checked, attempts, completion.text
+            soft_round_used = True
+            repair = repair_message([], checked.findings)
+        else:
+            repair = repair_message(checked.errors, checked.findings)
         messages += [
             {"role": "assistant", "content": completion.text},
-            {"role": "user", "content": repair_message(errors)},
+            {"role": "user", "content": repair},
         ]
-    raise PlanningError(errors, attempts)
+    if best is not None:
+        return best[0], attempts, best[1]
+    raise PlanningError(checked.errors, attempts)
 
 
 class _Check[S: BaseModel]:
-    """Parse and validate one reply; returns the scenario (if it parsed) and its problems."""
+    """Parse and validate one reply."""
 
     def __init__(self, schema: type[S]) -> None:
         self.schema = schema
 
-    def parse(self, text: str) -> tuple[S | None, list[str]]:
+    def parse(self, text: str) -> Checked[S]:
         try:
-            return self.schema.model_validate(extract_json_object(text)), []
+            return Checked(scenario=self.schema.model_validate(extract_json_object(text)))
         except JsonOutputError as exc:
-            return None, [str(exc)]
+            return Checked(scenario=None, errors=[str(exc)])
         except ValidationError as exc:
-            return None, validation_errors(exc)
+            return Checked(scenario=None, errors=validation_errors(exc))
 
-    def __call__(self, text: str) -> tuple[S | None, list[str]]:
+    def __call__(self, text: str) -> Checked[S]:
         return self.parse(text)
 
 
 class _DeckCheck(_Check[DeckScenario]):
-    def __init__(self, store: FactStore, settings: DeckSettings) -> None:
+    def __init__(
+        self,
+        store: FactStore,
+        notes: list[Note],
+        settings: DeckSettings,
+        wanted: tuple[int, int] | None,
+    ) -> None:
         super().__init__(DeckScenario)
         self.store = store
+        self.notes = notes
         self.settings = settings
-        self.resolved: ResolvedDeck | None = None
+        self.wanted = wanted
 
-    def __call__(self, text: str) -> tuple[DeckScenario | None, list[str]]:
-        scenario, errors = self.parse(text)
+    def __call__(self, text: str) -> Checked[DeckScenario]:
+        checked = self.parse(text)
+        scenario = checked.scenario
         if scenario is None:
-            return None, errors
-        if self.settings.slides and len(scenario.slides) != self.settings.slides:
-            errors.append(
-                f"slides: нужно ровно {self.settings.slides} слайдов, а их {len(scenario.slides)}"
-            )
+            return checked
         try:
-            self.resolved = resolve_deck(scenario, self.store)
+            resolved = resolve_deck(
+                scenario, self.store, self.notes, auto_data_notes=not self.settings.slides
+            )
         except ScenarioError as exc:
-            errors += exc.errors
-        return scenario, errors
+            checked.errors += exc.errors
+            return checked
+        checked.resolved = resolved
+        count = len(resolved.spec.slides)
+        if self.settings.slides and count != self.settings.slides:
+            checked.errors.append(
+                f"slides: нужно ровно {self.settings.slides} слайдов, а их {count}"
+            )
+        wanted = None if self.settings.slides else self.wanted
+        checked.findings = lint_deck(scenario, self.store.tables, count, wanted)
+        return checked
 
 
 class _VideoCheck(_Check[VideoScenario]):
@@ -169,12 +232,24 @@ class _VideoCheck(_Check[VideoScenario]):
         self.source_text = source_text
         self.settings = settings
 
-    def __call__(self, text: str) -> tuple[VideoScenario | None, list[str]]:
-        scenario, errors = self.parse(text)
-        if scenario is None:
-            return None, errors
+    def __call__(self, text: str) -> Checked[VideoScenario]:
+        checked = self.parse(text)
+        if checked.scenario is None:
+            return checked
         s = self.settings
-        return scenario, check_video(scenario, self.source_text, s.min_seconds, s.max_seconds)
+        checked.errors = check_video(
+            checked.scenario, self.source_text, s.min_seconds, s.max_seconds
+        )
+        checked.findings = lint_video(checked.scenario, self.source_text)
+        return checked
+
+
+def _quarantine(
+    documents: list[Document], tables: list[Table]
+) -> tuple[list[Document], list[Table], list[Note]]:
+    documents, document_notes = quarantine_documents(documents)
+    tables, table_notes = quarantine_tables(tables)
+    return documents, tables, document_notes + table_notes
 
 
 def plan_deck(
@@ -184,13 +259,28 @@ def plan_deck(
     settings: DeckSettings,
     model: ChatModel,
 ) -> DeckPlan:
-    check = _DeckCheck(store, settings)
+    documents, tables, quarantined = _quarantine(documents, store.tables)
+    store = FactStore(tables)
+    notes = [*notes, *quarantined]
+    wanted = (settings.slides, settings.slides) if settings.slides else slide_range(documents)
+    check = _DeckCheck(store, notes, settings, wanted)
     user = (
-        render_materials(documents, store.tables, notes)
-        + "\n\nСоставь сценарий презентации по этим материалам."
+        render_materials(documents, tables, notes, build_digest(tables))
+        + f"\n\n{AFTER_MATERIALS}\nСоставь сценарий презентации по этим материалам."
     )
-    scenario, attempts, raw = _run(model, deck_system_prompt(settings), user, check)
-    return DeckPlan(scenario=scenario, attempts=attempts, raw=raw, resolved=check.resolved)
+    checked, attempts, raw = _run(model, deck_system_prompt(settings, wanted), user, check)
+    if checked.scenario is None:  # _run returns only acceptable replies
+        raise PlanningError(checked.errors, attempts)
+    resolved = checked.resolved
+    warnings = (resolved.warnings if resolved else []) + checked.findings
+    return DeckPlan(
+        scenario=checked.scenario,
+        attempts=attempts,
+        raw=raw,
+        warnings=warnings,
+        notes=notes,
+        resolved=resolved,
+    )
 
 
 def source_text(documents: list[Document]) -> str:
@@ -198,11 +288,22 @@ def source_text(documents: list[Document]) -> str:
 
 
 def plan_video(documents: list[Document], settings: VideoSettings, model: ChatModel) -> VideoPlan:
+    documents, quarantined = quarantine_documents(documents)
+    # Numbers allowed in the video come from the text after quarantine: a planted line
+    # cannot widen the list of facts.
     text = source_text(documents)
     check = _VideoCheck(text, settings)
     materials = (
         "<материалы>\n" + "\n\n".join(render_document(d) for d in documents) + "\n</материалы>"
     )
-    user = materials + "\n\nНапиши сценарий ролика по этому тексту."
-    scenario, attempts, raw = _run(model, video_system_prompt(settings), user, check)
-    return VideoPlan(scenario=scenario, attempts=attempts, raw=raw)
+    user = f"{materials}\n\n{AFTER_MATERIALS}\nНапиши сценарий ролика по этому тексту."
+    checked, attempts, raw = _run(model, video_system_prompt(settings), user, check)
+    if checked.scenario is None:
+        raise PlanningError(checked.errors, attempts)
+    return VideoPlan(
+        scenario=checked.scenario,
+        attempts=attempts,
+        raw=raw,
+        warnings=checked.findings,
+        notes=quarantined,
+    )

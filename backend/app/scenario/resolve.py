@@ -10,16 +10,22 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from app.facts.format import format_number, format_quantity
-from app.facts.models import Derived, NameRef, Quantity, ScaleOp, Series
+from app.facts.format import format_number, format_quantity, round_half_up
+from app.facts.models import Derived, NameRef, Quantity, RateOp, Series
 from app.facts.ops import evaluate
 from app.facts.store import FactError, FactStore, normalize_label
+from app.ingest.models import Note
 from app.scenario import deck as sc
 from app.scenario import render as rd
 from app.scenario.text import render_text, series_item
 
 DEFAULT_COLORS: tuple[rd.ColorToken, ...] = ("primary", "accent", "muted", "grid")
 CHANGE_NEUTRAL_PCT = 3.0  # smaller changes are shown without a red/green tone
+# A line whose values are this small next to the bars would be flat on their axis.
+SECONDARY_AXIS_RATIO = 0.25
+MAX_DATA_NOTES_ROWS = 8
+_PER_N = re.compile(r"\bна\s?\d", re.IGNORECASE)  # "на 1000 заказов"
+_VALUE_REF = re.compile(r"^([a-z][a-z0-9_]*)(?:\[(.+)\])?$")
 
 
 class ScenarioError(ValueError):
@@ -34,7 +40,7 @@ class ClaimCheck:
     quote: str
     label: str
     value: str  # formatted figure from the data
-    matches: bool
+    matches: bool | None  # None: the quote has no number to compare
 
 
 @dataclass
@@ -45,10 +51,31 @@ class ResolvedDeck:
     warnings: list[str] = field(default_factory=list)
 
 
-def resolve_deck(scenario: sc.DeckScenario, facts: FactStore) -> ResolvedDeck:
+def _names_in(value: object) -> set[str]:
+    """Names referenced inside an operation: every {"name": …} at any depth."""
+    if isinstance(value, dict):
+        found = {value["name"]} if set(value) == {"name"} else set()
+        return found.union(*(_names_in(v) for v in value.values()))
+    if isinstance(value, list):
+        return set().union(*(_names_in(v) for v in value))
+    return set()
+
+
+def resolve_deck(
+    scenario: sc.DeckScenario,
+    facts: FactStore,
+    notes: list[Note] | None = None,
+    *,
+    auto_data_notes: bool = True,
+) -> ResolvedDeck:
+    """`notes` (data fixes, gaps, quarantined instructions) fill the «Проверка данных» slide;
+    with `auto_data_notes` the slide is appended when there is something to report and the
+    scenario left it out."""
     store = FactStore(facts.tables)
     errors: list[str] = []
     warnings: list[str] = []
+    # Which operations each name was built with: a claim must not be "proved" by a constant.
+    lineage: dict[str, set[str]] = {name: {"ref"} for name in scenario.values}
 
     for name, ref in scenario.values.items():
         try:
@@ -58,16 +85,30 @@ def resolve_deck(scenario: sc.DeckScenario, facts: FactStore) -> ResolvedDeck:
         except FactError as exc:
             errors.append(f"values.{name}: {exc}")
     for i, op in enumerate(scenario.derived):
+        if op.op in ("scale", "ratio") and _PER_N.search(f"{op.label} {getattr(op, 'unit', '')}"):
+            errors.append(
+                f"derived[{i}] ({op.id}): показатель «на N …» считается только через "
+                'rate: {"op": "rate", "a": <что считаем>, "b": <на что делим>, "per": N}'
+            )
+        used = _names_in(op.model_dump())
+        lineage[op.id] = {op.op}.union(*(lineage.get(name, set()) for name in used))
         try:
             derived = evaluate(op, store)
             warnings += derived.warnings
         except FactError as exc:
             errors.append(f"derived[{i}] ({op.id}): {exc}")
 
-    constants = frozenset(f"{op.factor:g}" for op in scenario.derived if isinstance(op, ScaleOp))
-    resolver = _SlideResolver(store, errors, warnings, constants)
-    slides = [resolver.slide(slide, f"slides[{i}]") for i, slide in enumerate(scenario.slides)]
+    rate_bases = frozenset(str(op.per) for op in scenario.derived if isinstance(op, RateOp))
+    resolver = _SlideResolver(store, errors, warnings, lineage, rate_bases)
     claims = [resolver.claim(claim, f"claims[{i}]") for i, claim in enumerate(scenario.claims)]
+    resolver.claim_checks = [c for c in claims if c is not None]
+    resolver.notes = notes or []
+    slides = [resolver.slide(slide, f"slides[{i}]") for i, slide in enumerate(scenario.slides)]
+    has_notes_slide = any(isinstance(slide, sc.DataNotes) for slide in scenario.slides)
+    if auto_data_notes and not has_notes_slide:
+        appended = resolver.data_notes(sc.DataNotes(type="data_notes"), "data_notes")
+        if appended is not None:
+            slides.append(appended)
     footer = resolver.text(scenario.footer, "footer")
     title = resolver.text(scenario.title, "title") or ""
     if errors:
@@ -75,7 +116,7 @@ def resolve_deck(scenario: sc.DeckScenario, facts: FactStore) -> ResolvedDeck:
     spec = rd.DeckSpec(title=title, footer=footer, slides=[s for s in slides if s is not None])
     return ResolvedDeck(
         spec=spec,
-        claims=[c for c in claims if c is not None],
+        claims=resolver.claim_checks,
         derived=store.derived,
         warnings=warnings,
     )
@@ -91,19 +132,27 @@ def excel_format(decimals: int, unit: str | None) -> str:
 
 class _SlideResolver:
     def __init__(
-        self, store: FactStore, errors: list[str], warnings: list[str], constants: frozenset[str]
+        self,
+        store: FactStore,
+        errors: list[str],
+        warnings: list[str],
+        lineage: dict[str, set[str]],
+        rate_bases: frozenset[str] = frozenset(),
     ) -> None:
         self.store = store
         self.errors = errors
         self.warnings = warnings
-        self.constants = constants
+        self.lineage = lineage
+        self.rate_bases = rate_bases
+        self.claim_checks: list[ClaimCheck] = []
+        self.notes: list[Note] = []
 
     # ------------------------------------------------------------------------- helpers
 
     def text(self, value: str | None, path: str) -> str | None:
         if not value:
             return None
-        return render_text(value, self.store, path, self.errors, self.constants)
+        return render_text(value, self.store, path, self.errors, self.rate_bases)
 
     def lookup(self, name: str, path: str) -> Quantity | Series | None:
         try:
@@ -144,15 +193,15 @@ class _SlideResolver:
     def keys(self, first: Series, wanted: list[str] | None, path: str) -> list[str]:
         if wanted is None:
             return [item.key for item in first.items]
-        known = {normalize_label(i.key): i.key for i in first.items}
         keys = []
         for key in wanted:
-            if normalize_label(key) in known:
-                keys.append(known[normalize_label(key)])
+            found = series_item(first, key)
+            match = next((i.key for i in first.items if i.quantity is found), None)
+            if found is not None and match is not None:
+                keys.append(match)
             else:
-                self.errors.append(
-                    f"{path}: в «{first.label}» нет «{key}». Есть: {', '.join(known.values())}"
-                )
+                known = ", ".join(i.key for i in first.items)
+                self.errors.append(f"{path}: в «{first.label}» нет «{key}». Есть: {known}")
         return keys
 
     # -------------------------------------------------------------------------- slides
@@ -195,6 +244,14 @@ class _SlideResolver:
                 )
             case sc.CostStructure():
                 return self.cost_structure(slide, path)
+            case sc.DataNotes():
+                return self.data_notes(slide, path) or rd.TableSlide(
+                    title=self.text(slide.title, f"{path}.title") or "",
+                    table=rd.TableSpec(
+                        columns=[rd.TableColumn(header="Проверка", align="left")],
+                        rows=[[rd.TableCell(text="Замечаний к данным нет")]],
+                    ),
+                )
             case sc.RisksDecisions():
                 return rd.RisksDecisionsSlide(
                     title=self.text(slide.title, f"{path}.title") or "",
@@ -246,7 +303,7 @@ class _SlideResolver:
         series = [s for s in resolved if s is not None]
         categories = self.keys(series[0], chart.categories, f"{path}.categories")
         out: list[rd.ChartSeries] = []
-        formats: dict[str, str] = {}
+        series_formats: list[str] = []
         for i, (spec, data) in enumerate(zip(chart.series, series, strict=True)):
             values: list[float | None] = []
             decimals = 0
@@ -254,10 +311,12 @@ class _SlideResolver:
                 if item is None:
                     self.warnings.append(f"{path}.series[{i}]: нет «{key}» — пропуск на графике")
                 values.append(
-                    round(item.value, item.decimals) if item and item.value is not None else None
+                    round_half_up(item.value, item.decimals)
+                    if item and item.value is not None
+                    else None
                 )
                 decimals = max(decimals, item.decimals if item else 0)
-            formats.setdefault(spec.axis, excel_format(decimals, data.unit))
+            series_formats.append(excel_format(decimals, data.unit))
             out.append(
                 rd.ChartSeries(
                     name=self.text(spec.name, f"{path}.series[{i}].name") or "",
@@ -272,6 +331,10 @@ class _SlideResolver:
             self.errors.append(f"{path}: хотя бы один ряд должен быть на основной оси")
         if any(s.kind == "bar" and s.axis == "secondary" for s in out):
             self.errors.append(f"{path}: на вспомогательной оси могут быть только линии")
+        out = _move_small_lines(out, path, self.warnings)
+        formats: dict[str, str] = {}
+        for s, fmt in zip(out, series_formats, strict=True):
+            formats.setdefault(s.axis, fmt)
         return rd.ChartSpec(
             caption=self.text(chart.caption, f"{path}.caption"),
             categories=display_keys(categories),
@@ -301,15 +364,21 @@ class _SlideResolver:
 
         has_total = any(c.total for c in table.columns)
         if has_total:
-            total_row = [rd.TableCell(text=table.total_label)]
+            total_label = self.text(table.total_label, f"{path}.total_label") or ""
+            total_row = [rd.TableCell(text=total_label)]
             for i, spec in enumerate(table.columns):
                 q = self.scalar(spec.total, f"{path}.columns[{i}].total") if spec.total else None
                 total_row.append(_cell(q, spec, None) if q else rd.TableCell(text=""))
             cells.append(total_row)
 
+        headers = [
+            self.text(c.header, f"{path}.columns[{i}].header") or ""
+            for i, c in enumerate(table.columns)
+        ]
+        row_header = self.text(table.row_header, f"{path}.row_header") or ""
         return rd.TableSpec(
-            columns=[rd.TableColumn(header=table.row_header, align="left", width=1.4)]
-            + [rd.TableColumn(header=c.header, align="right") for c in table.columns],
+            columns=[rd.TableColumn(header=row_header, align="left", width=1.4)]
+            + [rd.TableColumn(header=h, align="right") for h in headers],
             rows=cells,
             total_row=has_total,
         )
@@ -347,20 +416,34 @@ class _SlideResolver:
             title=self.text(slide.title, f"{path}.title") or "",
             subtitle=self.text(slide.subtitle, f"{path}.subtitle"),
             total=rd.CostTotal(
-                label=slide.total_label, value=format_quantity(total, amounts.unit, decimals)
+                label=self.text(slide.total_label, f"{path}.total_label") or "",
+                value=format_quantity(total, amounts.unit, decimals),
             ),
             items=out,
             callout=self.text(slide.callout, f"{path}.callout"),
         )
 
     def claim(self, claim: sc.Claim, path: str) -> ClaimCheck | None:
-        q = self.scalar(claim.value, f"{path}.value")
+        ref = _VALUE_REF.match(claim.value)
+        if ref is None:
+            self.errors.append(f"{path}.value: ожидается имя или имя[ключ]")
+            return None
+        name, key = ref.group(1), ref.group(2)
+        if "scale" in self.lineage.get(name, set()):
+            self.errors.append(
+                f"{path}.value: утверждения проверяются только данными таблиц и расчётами "
+                f"без scale — уберите scale из цепочки «{name}»"
+            )
+            return None
+        q = self.item(name, key, f"{path}.value")
         if q is None:
             return None
         stated = [float(t.replace(",", ".")) for t in re.findall(r"\d+(?:[.,]\d+)?", claim.quote)]
-        matches = q.value is not None and any(
-            abs(n - q.value) <= max(0.5, abs(q.value) * 0.01) for n in stated
-        )
+        matches: bool | None = None
+        if stated:
+            matches = q.value is not None and any(
+                abs(n - q.value) <= max(0.5, abs(q.value) * 0.01) for n in stated
+            )
         return ClaimCheck(
             source=claim.source,
             quote=claim.quote,
@@ -368,6 +451,102 @@ class _SlideResolver:
             value=q.formatted(),
             matches=matches,
         )
+
+    def data_notes(self, slide: sc.DataNotes, path: str) -> rd.TableSlide | None:
+        """«Проверка данных»: what was fixed, what is missing, where documents disagree with
+        the tables, and which instructions to the model were found and ignored."""
+        rows: list[list[rd.TableCell]] = []
+        for note in self.notes:
+            row = _note_row(note)
+            if row is not None:
+                rows.append(row)
+        for check in self.claim_checks:
+            if check.matches is False:
+                rows.append(
+                    [
+                        rd.TableCell(text=check.source),
+                        rd.TableCell(text=f"«{_shorten(check.quote, 90)}»"),
+                        rd.TableCell(
+                            text=f"По таблице: {check.label.split(' › ')[-1]} — {check.value}. "
+                            "На слайдах — цифра из таблицы",
+                            tone="negative",
+                        ),
+                    ]
+                )
+        if not rows:
+            return None
+        if len(rows) > MAX_DATA_NOTES_ROWS:
+            self.warnings.append(f"{path}: показаны {MAX_DATA_NOTES_ROWS} из {len(rows)} замечаний")
+            rows = rows[:MAX_DATA_NOTES_ROWS]
+        return rd.TableSlide(
+            title=self.text(slide.title, f"{path}.title") or "",
+            table=rd.TableSpec(
+                columns=[
+                    rd.TableColumn(header="Где", align="left", width=1.3),
+                    rd.TableColumn(header="Что было", align="left", width=1.6),
+                    rd.TableColumn(header="Что сделали", align="left", width=1.8),
+                ],
+                rows=rows,
+            ),
+        )
+
+
+def _shorten(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def _note_row(note: Note) -> list[rd.TableCell] | None:
+    """A data-quality note as «Где / Что было / Что сделали»; plain confirmations are skipped."""
+    if note.message.startswith("Проверено"):
+        return None
+    where = note.source.split(" › ")[-1] if note.location is None else note.location
+    if note.kind == "quarantine":
+        quoted = note.message.partition("не использовано: ")[2] or note.message
+        return [
+            rd.TableCell(text=_shorten(where, 60)),
+            rd.TableCell(text=f"Указание для модели в тексте: {_shorten(quoted, 70)}"),
+            rd.TableCell(text="Не выполнялось и не использовалось", tone="negative"),
+        ]
+    head, _, tail = note.message.partition(": ")
+    was, _, done = (tail or head).partition(" — ")
+    if not done:
+        was, done = head, tail
+    return [
+        rd.TableCell(text=_shorten(where, 60)),
+        rd.TableCell(text=_shorten(was.strip(), 90)),
+        rd.TableCell(
+            text=_shorten(done.strip(), 90),
+            tone="negative" if note.severity == "warning" else None,
+        ),
+    ]
+
+
+def _move_small_lines(
+    series: list[rd.ChartSeries], path: str, warnings: list[str]
+) -> list[rd.ChartSeries]:
+    """A line far smaller than the bars on the same axis is flat at the bottom: give it the
+    secondary axis (when that axis is free)."""
+    bars = [v for s in series if s.kind == "bar" for v in s.values if v is not None]
+    if not bars or any(s.axis == "secondary" for s in series):
+        return series
+    top = max(abs(v) for v in bars)
+    out = []
+    moved = False
+    for s in series:
+        values = [abs(v) for v in s.values if v is not None]
+        if (
+            not moved
+            and s.kind == "line"
+            and values
+            and top > 0
+            and max(values) < SECONDARY_AXIS_RATIO * top
+        ):
+            out.append(s.model_copy(update={"axis": "secondary"}))
+            warnings.append(f"{path}: линия «{s.name}» перенесена на вспомогательную ось")
+            moved = True
+        else:
+            out.append(s)
+    return out
 
 
 def aligned(data: Series, reference: Series, keys: list[str]) -> list[Quantity | None]:

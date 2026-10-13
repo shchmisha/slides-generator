@@ -9,7 +9,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 
 from app.ingest.errors import IngestError
-from app.ingest.models import Block, Document, FileKind, RawCell, RawTable
+from app.ingest.models import Block, Document, FileKind, Note, RawCell, RawTable
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +28,11 @@ def extract_docx(data: bytes, filename: str) -> Document:
 
     blocks: list[Block] = []
     tables: list[RawTable] = []
+    hidden = 0
     for item in document.iter_inner_content():
         if isinstance(item, Paragraph):
+            if any(run.font.hidden for run in item.runs):
+                hidden += 1
             block = _paragraph_block(item)
             if block is not None:
                 blocks.append(block)
@@ -37,11 +40,30 @@ def extract_docx(data: bytes, filename: str) -> Document:
             previous = blocks[-1].text if blocks else None
             title = previous if previous and len(previous) <= MAX_TITLE_CHARS else None
             tables.append(_table(item, f"{filename} › таблица {len(tables) + 1}", title))
-    return Document(filename=filename, kind=FileKind.DOCX, blocks=blocks, tables=tables, notes=[])
+    notes = []
+    if hidden:
+        notes.append(
+            Note(
+                severity="warning",
+                source=filename,
+                message=f"Скрытый текст в документе пропущен (абзацев: {hidden}): "
+                "его не видно читателю, поэтому он не используется",
+            )
+        )
+    return Document(
+        filename=filename, kind=FileKind.DOCX, blocks=blocks, tables=tables, notes=notes
+    )
+
+
+def _visible_text(paragraph: Paragraph) -> str:
+    """Paragraph text without hidden runs (w:vanish): what a reader of the file actually sees."""
+    if not any(run.font.hidden for run in paragraph.runs):
+        return paragraph.text
+    return "".join(run.text for run in paragraph.runs if not run.font.hidden)
 
 
 def _paragraph_block(paragraph: Paragraph) -> Block | None:
-    text = paragraph.text.strip()
+    text = _visible_text(paragraph).strip()
     if not text:
         return None
     style = paragraph.style.name if paragraph.style is not None else ""

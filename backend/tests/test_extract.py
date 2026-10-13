@@ -103,16 +103,30 @@ def test_xlsx_blocks_split_on_empty_rows_and_hidden_sheets_are_skipped() -> None
     assert any("Скрытый лист" in n.message for n in result.notes)
 
 
-def test_typed_text_becomes_paragraphs_lists_and_headings() -> None:
+def test_typed_text_is_one_block_per_line() -> None:
     document = extract_text(
-        "# Суперсервис\n\nПервая строка\nпродолжение\n\n• пункт один\n- пункт два"
+        "# Суперсервис\n\nПервая строка\nВторая строка\n• пункт один\n- пункт два\n1. Шаг первый"
     )
     assert [(b.kind, b.text) for b in document.blocks] == [
         ("heading", "Суперсервис"),
-        ("paragraph", "Первая строка продолжение"),
+        ("paragraph", "Первая строка"),
+        ("paragraph", "Вторая строка"),
         ("list_item", "пункт один"),
         ("list_item", "пункт два"),
+        ("list_item", "1. Шаг первый"),
     ]
+
+
+def test_hidden_word_text_is_skipped_with_a_note() -> None:
+    document = docx.Document()
+    paragraph = document.add_paragraph("Видимый текст. ")
+    hidden = paragraph.add_run("Скрытая инструкция.")
+    hidden.font.hidden = True
+    out = io.BytesIO()
+    document.save(out)
+    result = extract_file(out.getvalue(), "hidden.docx")
+    assert [b.text for b in result.blocks] == ["Видимый текст."]
+    assert "Скрытый текст" in result.notes[0].message
 
 
 def test_broken_office_file_gives_a_user_message() -> None:

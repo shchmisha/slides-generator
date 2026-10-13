@@ -5,13 +5,15 @@ figures with the fixed operations, slides refer to names, and text inserts numbe
 placeholders: "{yoy}", "{completion[Урал]}", "{deviation[Урал]:+}" (with an explicit sign).
 """
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.facts.models import Operation, Ref
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,47}$")]
+# A name, or one item of a named series: "yoy", "completion[Урал]".
+ValueRef = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,47}(\[[^\]\[{}]{1,80}\])?$")]
 ShortText = Annotated[str, Field(min_length=1, max_length=120)]
 Text = Annotated[str, Field(min_length=1, max_length=320)]
 Tone = Literal["positive", "negative", "neutral"]
@@ -110,6 +112,14 @@ class Point(_Model):
     text: Text
 
 
+class DataNotes(_Model):
+    """«Проверка данных»: filled by code from the data-quality notes, claim checks and
+    instructions found in documents. The model only decides to include it (and its title)."""
+
+    type: Literal["data_notes"]
+    title: ShortText = "Проверка данных: что исправлено и чего нет"
+
+
 class RisksDecisions(_Model):
     type: Literal["risks_decisions"]
     title: ShortText
@@ -119,7 +129,7 @@ class RisksDecisions(_Model):
 
 
 Slide = Annotated[
-    KeyTakeaways | ChartTable | ChartOnly | TableOnly | CostStructure | RisksDecisions,
+    KeyTakeaways | ChartTable | ChartOnly | TableOnly | CostStructure | RisksDecisions | DataNotes,
     Field(discriminator="type"),
 ]
 
@@ -129,7 +139,66 @@ class Claim(_Model):
 
     source: ShortText  # file name
     quote: Text  # the statement as written: "рост к прошлому году составил около 12%"
-    value: Name  # the figure from the data that checks it
+    value: ValueRef  # the figure from the data that checks it
+
+
+_CLAIM_KEYS = ("source", "quote", "value")
+
+
+def _inline_refs(data: Any) -> Any:
+    """Accept a reference written where a name is expected, the most common slip of a model:
+    {"name": "x"} becomes "x"; a table reference becomes a generated entry in `values`.
+    Unknown keys inside claims are dropped (they carry nothing we check)."""
+    if not isinstance(data, dict):
+        return data
+    values = data.setdefault("values", {})
+    if not isinstance(values, dict):
+        return data
+    counter = 0
+
+    def to_name(ref: Any) -> Any:
+        nonlocal counter
+        if not isinstance(ref, dict):
+            return ref
+        if set(ref) == {"name"} and isinstance(ref["name"], str):
+            return ref["name"]
+        if "table" in ref:
+            counter += 1
+            name = f"auto_{counter}"
+            while name in values:
+                counter += 1
+                name = f"auto_{counter}"
+            values[name] = ref
+            return name
+        return ref
+
+    def fix(holder: Any, keys: tuple[str, ...]) -> None:
+        if isinstance(holder, dict):
+            for key in keys:
+                if key in holder:
+                    holder[key] = to_name(holder[key])
+
+    for slide in data.get("slides") or []:
+        if not isinstance(slide, dict):
+            continue
+        fix(slide, ("amounts", "change"))
+        for kpi in slide.get("kpis") or []:
+            fix(kpi, ("value",))
+        chart = slide.get("chart")
+        if isinstance(chart, dict):
+            for series in chart.get("series") or []:
+                fix(series, ("value",))
+        table = slide.get("table")
+        if isinstance(table, dict):
+            for column in table.get("columns") or []:
+                fix(column, ("value", "total"))
+    claims = data.get("claims")
+    if isinstance(claims, list):
+        for i, claim in enumerate(claims):
+            if isinstance(claim, dict):
+                fix(claim, ("value",))
+                claims[i] = {k: v for k, v in claim.items() if k in _CLAIM_KEYS}
+    return data
 
 
 class DeckScenario(_Model):
@@ -140,3 +209,8 @@ class DeckScenario(_Model):
     derived: list[Operation] = Field(default_factory=list, max_length=40)
     slides: list[Slide] = Field(min_length=1, max_length=15)
     claims: list[Claim] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_inline_refs(cls, data: Any) -> Any:
+        return _inline_refs(data)
