@@ -36,7 +36,7 @@ from app.llm.jsonout import JsonOutputError, extract_json_object
 from app.scenario.deck import DeckScenario
 from app.scenario.lint import lint_deck
 from app.scenario.resolve import ResolvedDeck, ScenarioError, resolve_deck
-from app.scenario.video import VideoScenario, check_video, lint_video
+from app.scenario.video import VideoScenario, check_video, fit_duration, lint_video
 
 logger = logging.getLogger(__name__)
 
@@ -231,16 +231,19 @@ class _VideoCheck(_Check[VideoScenario]):
         super().__init__(VideoScenario)
         self.source_text = source_text
         self.settings = settings
+        self.adjustments: list[str] = []
 
     def __call__(self, text: str) -> Checked[VideoScenario]:
         checked = self.parse(text)
         if checked.scenario is None:
             return checked
         s = self.settings
-        checked.errors = check_video(
-            checked.scenario, self.source_text, s.min_seconds, s.max_seconds
-        )
-        checked.findings = lint_video(checked.scenario, self.source_text)
+        scenario, fitted = fit_duration(checked.scenario, s.min_seconds, s.max_seconds)
+        checked.scenario = scenario
+        checked.errors = check_video(scenario, self.source_text, s.min_seconds, s.max_seconds)
+        checked.findings = lint_video(scenario, self.source_text)
+        if fitted:
+            self.adjustments.append(fitted)
         return checked
 
 
@@ -304,6 +307,6 @@ def plan_video(documents: list[Document], settings: VideoSettings, model: ChatMo
         scenario=checked.scenario,
         attempts=attempts,
         raw=raw,
-        warnings=checked.findings,
+        warnings=checked.findings + check.adjustments[-1:],
         notes=quarantined,
     )

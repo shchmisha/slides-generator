@@ -76,3 +76,22 @@ def test_schema_rejects_html_and_unknown_visuals() -> None:
         VideoScenario.model_validate(
             {"kind": "video", "title": "x", "scenes": [scene(15)] * 4, "html": "<script></script>"}
         )
+
+
+def test_durations_are_fitted_by_code_when_the_sum_is_off() -> None:
+    from app.scenario.video import fit_duration
+
+    scenario = video(*[scene(13.5, "Короткая фраза о сервисе.")] * 6)  # 81 s
+    fitted, note = fit_duration(scenario, 60, 75)
+    assert sum(s.duration_s for s in fitted.scenes) == pytest.approx(75)
+    assert note == "Длительность сцен подогнана кодом: 81 → 75 с"
+    assert check_video(fitted, SOURCE) == []
+
+
+def test_durations_are_not_squeezed_below_speakable() -> None:
+    from app.scenario.video import fit_duration
+
+    long_text = " ".join(["слово"] * 34)  # fits 13,5 s (≤ 35 words), not 12,5 s (≤ 32)
+    scenario = video(*[scene(13.5, long_text)] * 6)
+    fitted, note = fit_duration(scenario, 60, 75)
+    assert note is None and fitted is scenario  # the model has to shorten the text

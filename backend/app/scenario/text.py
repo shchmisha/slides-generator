@@ -23,6 +23,7 @@ _NUMBER_WORDS = re.compile(
     re.IGNORECASE,
 )
 MAX_FREE_NUMBER = 12
+_BRACED_NUMBER = re.compile(r"\{\s*[\d.,\s]+%?\s*\}")  # "{12}": a number dressed as a placeholder
 # "вырос на {x}", "отстал от плана на {x}": the verb already says the direction, so the value
 # is shown without its sign ("вырос на 55,6 %", not "вырос на +55,6 %").
 _DIRECTION_BEFORE = re.compile(
@@ -115,7 +116,13 @@ def render_text(
             "«на N» можно писать, только если есть операция rate с per=N"
         )
     literal = PLACEHOLDER.sub(" ", text)
-    if "{" in literal or "}" in literal:
+    if braced := _BRACED_NUMBER.search(literal):
+        errors.append(
+            f"{path}: «{braced.group(0)}» — число в фигурных скобках не подстановка. Числа из "
+            "документов на слайды не пиши: скажи словами («оценка из комментария завышена»), "
+            "а само утверждение внеси в claims"
+        )
+    elif "{" in literal or "}" in literal:
         errors.append(
             f"{path}: непонятная подстановка — формат {{имя}}, {{имя[ключ]}} или {{имя:+}}"
         )

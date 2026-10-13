@@ -181,6 +181,26 @@ class _SlideResolver:
             self.errors.append(f"{path}: в «{name}» нет «{key}». Есть: {keys}")
         return found
 
+    def total_of(self, ref: str, path: str) -> Quantity | None:
+        """A table total: a value, an item ("completion[Итого по компании]"), or a series —
+        then its own total row."""
+        match = _VALUE_REF.match(ref)
+        if match is None:
+            self.errors.append(f"{path}: ожидается имя или имя[ключ]")
+            return None
+        name, key = match.group(1), match.group(2)
+        if key is not None:
+            return self.item(name, key, path)
+        value = self.lookup(name, path)
+        if isinstance(value, Series):
+            total = next((i.quantity for i in value.items if i.total), None)
+            if total is None:
+                self.errors.append(
+                    f"{path}: в ряду «{name}» нет итоговой строки — укажите итог отдельно"
+                )
+            return total
+        return value
+
     def series(self, name: str, path: str) -> Series | None:
         value = self.lookup(name, path)
         if isinstance(value, Quantity):
@@ -367,7 +387,7 @@ class _SlideResolver:
         totals: list[Quantity | None] = []
         for i, (spec, data) in enumerate(zip(table.columns, columns, strict=True)):
             if spec.total:
-                totals.append(self.scalar(spec.total, f"{path}.columns[{i}].total"))
+                totals.append(self.total_of(spec.total, f"{path}.columns[{i}].total"))
             else:
                 totals.append(next((t.quantity for t in data.items if t.total), None))
         # An automatic total only when all rows are shown: a company total under a subset of

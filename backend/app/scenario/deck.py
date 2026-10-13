@@ -61,7 +61,7 @@ class TableColumnSpec(_Model):
     signed: bool = False  # "+29" / "−16"
     tone_by_sign: bool = False  # positive green, negative red
     highlight: Literal["lowest", "highest"] | None = None  # mark the worst cell red
-    total: Name | None = None  # value for the total row
+    total: ValueRef | None = None  # total row: a name, name[key], or a series (its total row)
 
 
 class TableScenario(_Model):

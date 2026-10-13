@@ -401,3 +401,18 @@ def test_quarantined_quote_on_the_slide_has_no_digits(
     text = " ".join(c.text for row in slide.table.rows for c in row)  # type: ignore[union-attr]
     assert "9" not in text.split("Указание для модели в тексте:")[1].split("Не выполнялось")[0]
     assert "• •••" in text
+
+
+@pytest.mark.parametrize("total", ["completion", "completion[Итого по компании]"])
+def test_table_total_may_be_a_series_or_its_item(
+    store: FactStore, board: dict[str, Any], total: str
+) -> None:
+    board["slides"][1]["table"]["columns"][3]["total"] = total
+    rows = resolve(store, board).spec.slides[1].table.rows  # type: ignore[union-attr]
+    assert rows[-1][4].text == "101,5"
+
+
+def test_number_in_braces_gets_a_specific_hint(store: FactStore, board: dict[str, Any]) -> None:
+    board["slides"][0]["takeaways"][0] = "Рост {yoy}, а не {12}% из комментария."
+    errors = errors_of(store, board)
+    assert any("«{12}» — число в фигурных скобках" in e for e in errors)

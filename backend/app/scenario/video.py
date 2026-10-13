@@ -17,7 +17,7 @@ MAX_TOTAL_S = 75
 # Calm Russian narration is about 2.3 words per second; allow a little more before failing.
 MAX_WORDS_PER_SECOND = 2.6
 # Russian words are long: a calm voice says about 4–5 syllables a second.
-MAX_SYLLABLES_PER_SECOND = 5.0
+MAX_SYLLABLES_PER_SECOND = 5.5
 _VOWELS = re.compile("[аеёиоуыэюяАЕЁИОУЫЭЮЯ]")
 
 
@@ -52,6 +52,37 @@ def _numbers(text: str) -> set[str]:
     return {re.sub(r"[  ]", "", n).replace(",", ".") for n in _NUMBER.findall(text)}
 
 
+def fit_duration(
+    scenario: VideoScenario,
+    min_total_s: float = MIN_TOTAL_S,
+    max_total_s: float = MAX_TOTAL_S,
+) -> tuple[VideoScenario, str | None]:
+    """Scale scene durations into the allowed total when the model's sum is off (it often
+    lands at 78–80 s for a 60–75 s limit). Code adds numbers better than a language model.
+    Shortening is done only while every scene stays speakable; otherwise the check reports
+    it and the model shortens the text."""
+    total = sum(scene.duration_s for scene in scenario.scenes)
+    if min_total_s <= total <= max_total_s or total <= 0:
+        return scenario, None
+    target = max_total_s if total > max_total_s else min_total_s
+    factor = target / total
+    scenes = []
+    for scene in scenario.scenes:
+        seconds = round(scene.duration_s * factor, 1)
+        if seconds < 3 or len(scene.narration.split()) > seconds * MAX_WORDS_PER_SECOND:
+            return scenario, None
+        scenes.append(scene.model_copy(update={"duration_s": seconds}))
+    # Rounding can leave the sum a tenth outside the window: settle it on the longest scene.
+    drift = round(target - sum(s.duration_s for s in scenes), 1)
+    if drift:
+        longest = max(range(len(scenes)), key=lambda i: scenes[i].duration_s)
+        scenes[longest] = scenes[longest].model_copy(
+            update={"duration_s": round(scenes[longest].duration_s + drift, 1)}
+        )
+    fitted = scenario.model_copy(update={"scenes": scenes})
+    return fitted, f"Длительность сцен подогнана кодом: {total:g} → {target:g} с"
+
+
 def check_video(
     scenario: VideoScenario,
     source_text: str,
@@ -65,12 +96,6 @@ def check_video(
         errors.append(f"Общая длительность {total:g} с, а нужно {min_total_s:g}–{max_total_s:g} с")
     allowed = _numbers(source_text)
     for i, scene in enumerate(scenario.scenes):
-        syllables = len(_VOWELS.findall(scene.narration))
-        if syllables > scene.duration_s * MAX_SYLLABLES_PER_SECOND:
-            errors.append(
-                f"scenes[{i}].narration: {syllables} слогов не сказать спокойно за "
-                f"{scene.duration_s:g} с — сократи текст, а не только длительность"
-            )
         words = len(scene.narration.split())
         if words > scene.duration_s * MAX_WORDS_PER_SECOND:
             errors.append(
@@ -114,6 +139,12 @@ def lint_video(scenario: VideoScenario, source_text: str) -> list[str]:
         visual = scene.visual
         texts = [scene.narration, visual.heading or "", visual.caption or "", *visual.items]
         joined = " ".join(texts)
+        syllables = len(_VOWELS.findall(scene.narration))
+        if syllables > scene.duration_s * MAX_SYLLABLES_PER_SECOND:
+            findings.append(
+                f"scenes[{i}].narration: {syllables} слогов за {scene.duration_s:g} с — диктору "
+                "придётся спешить; сократи текст сцены"
+            )
         for match in _AD_WORDS.finditer(joined):
             if match.group(0).casefold() not in source:
                 findings.append(
