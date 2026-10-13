@@ -102,6 +102,13 @@ rejected (themes come from user files and are written into CSS).
 
 The Python emitter needs no change: it only knows element kinds, not slide types.
 
+## Fonts
+
+Layout is measured with the fonts installed where the script runs, and PowerPoint later draws
+the same text with the fonts named in the theme. Install fonts with the same metrics: Liberation
+(Arial, Times New Roman, Courier New) and Gelasio for Georgia (`fonts/`, see its README). The
+render image of the service does this.
+
 ## Security
 
 The layout runs with JavaScript disabled by CSP, every network request is aborted, images must be

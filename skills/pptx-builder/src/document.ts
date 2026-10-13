@@ -1,3 +1,4 @@
+import { fontStack } from "./fonts.ts";
 import { html } from "./html.ts";
 import { renderSlide } from "./templates/index.ts";
 import type { DeckSpec, Theme } from "./types.ts";
@@ -9,7 +10,9 @@ function themeVars(theme: Theme): string {
   const colors = Object.entries(theme.colors)
     .map(([token, value]) => `--${token}:${value};`)
     .join("");
-  return `:root{${colors}--font-heading:"${theme.fonts.heading}",serif;--font-body:"${theme.fonts.body}",sans-serif;}`;
+  const heading = fontStack(theme.fonts.heading, "serif");
+  const body = fontStack(theme.fonts.body, "sans-serif");
+  return `:root{${colors}--font-heading:${heading};--font-body:${body};}`;
 }
 
 /**
@@ -54,7 +57,7 @@ html,body{background:#d9dce1}
 .kpi-value{font-family:var(--font-heading);font-weight:700;font-size:34px;line-height:40px;white-space:nowrap;overflow:hidden}
 .kpi-unit{font-family:var(--font-body);font-weight:400;font-size:16px;color:var(--muted)}
 .kpi-label{margin-top:4px;font-size:14px;line-height:18px;color:var(--muted);max-height:36px;overflow:hidden}
-.kpi-delta{margin-top:auto;font-size:14px;line-height:18px;font-weight:700;white-space:nowrap;overflow:hidden}
+.kpi-delta{margin-top:auto;font-size:14px;line-height:18px;font-weight:700;max-height:36px;overflow:hidden}
 .kpi-delta.tone-neutral{color:var(--muted)}
 .takeaways{list-style:none;flex:1;display:flex;flex-direction:column;justify-content:center;gap:20px;padding-bottom:12px}
 .tk{position:relative;min-height:30px}

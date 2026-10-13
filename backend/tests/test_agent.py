@@ -1,7 +1,6 @@
 """The planning loop with a scripted model: parsing, repair rounds, limits, prompt contents."""
 
 import json
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -17,26 +16,13 @@ from app.facts.build import build_facts
 from app.facts.store import FactStore
 from app.ingest.extract import extract_file, extract_text
 from app.ingest.models import Document, Note
-from app.llm.client import Completion, LLMError, Message, OpenAICompatibleModel
+from app.llm.client import LLMError, OpenAICompatibleModel
 from app.llm.jsonout import JsonOutputError, extract_json_object
 from app.scenario.deck import DeckScenario
 
+from .fakes import ScriptedModel
+
 FIXTURES = Path(__file__).parent / "fixtures"
-
-
-class ScriptedModel:
-    """Returns the queued replies in order and records every request."""
-
-    def __init__(self, *replies: str, truncated: bool = False) -> None:
-        self.replies: Iterator[str] = iter(replies)
-        self.requests: list[list[Message]] = []
-        self.truncated = truncated
-
-    def complete(self, messages: list[Message], *, max_tokens: int | None = None) -> Completion:
-        self.requests.append(list(messages))
-        return Completion(
-            text=next(self.replies), model="fake", latency_ms=10, truncated=self.truncated
-        )
 
 
 @pytest.fixture(scope="module")

@@ -7,10 +7,12 @@ model (scenes are rendered from our own HyperFrames templates).
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
-ShortText = Annotated[str, Field(min_length=1, max_length=90)]
-Narration = Annotated[str, Field(min_length=1, max_length=420)]
+from app.scenario.clean import clean_text
+
+ShortText = Annotated[str, Field(min_length=1, max_length=90), AfterValidator(clean_text)]
+Narration = Annotated[str, Field(min_length=1, max_length=420), AfterValidator(clean_text)]
 
 MIN_TOTAL_S = 60
 MAX_TOTAL_S = 75

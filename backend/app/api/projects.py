@@ -30,7 +30,7 @@ from app.auth.deps import DB, CurrentUser
 from app.config import get_settings
 from app.ingest.errors import IngestError
 from app.ingest.sniff import sniff
-from app.models import Project, StoredFile, User
+from app.models import Artifact, Project, StoredFile, User
 from app.redis_client import get_redis
 from app.security import rate_limit
 from app.storage import remove_project, upload_path, write_file
@@ -77,6 +77,8 @@ class ProjectOut(BaseModel):
     title: str
     kind: Kind
     settings: dict[str, Any]
+    brand: dict[str, Any] | None  # the normalised theme; None: the default one
+    has_logo: bool
     files: list[FileOut]
     created_at: datetime
     updated_at: datetime
@@ -111,6 +113,8 @@ def _out(p: Project) -> ProjectOut:
         title=p.title,
         kind=p.kind,
         settings=p.settings,
+        brand=p.brand,
+        has_logo=p.logo_sha256 is not None,
         files=[_file_out(f) for f in p.files],
         created_at=p.created_at,
         updated_at=p.updated_at,
@@ -146,15 +150,18 @@ def _clean_name(name: str) -> str:
     return clean or "файл"
 
 
-def _lock_user(db: DB, user: User) -> None:
-    """Serialise this user's quota checks until the transaction ends (no-op on SQLite)."""
-    db.execute(select(User.id).where(User.id == user.id).with_for_update())
+def lock_user(db: DB, user: User) -> None:
+    """Serialise this user's quota checks until the transaction ends (no-op on SQLite).
+    Used for files, projects and jobs alike. FOR NO KEY UPDATE: it excludes other quota
+    checks but not the foreign-key checks of rows being inserted for this user elsewhere,
+    which would otherwise deadlock with a job saving its results."""
+    db.execute(select(User.id).where(User.id == user.id).with_for_update(key_share=True))
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_project(body: ProjectIn, db: DB, user: CurrentUser, redis: RedisDep) -> ProjectOut:
     rate_limit.check(redis, rate_limit.PROJECT_PER_USER, str(user.id))
-    _lock_user(db, user)
+    lock_user(db, user)
     count = db.scalar(select(func.count()).where(Project.user_id == user.id)) or 0
     if count >= get_settings().max_projects_per_user:
         raise HTTPException(
@@ -199,11 +206,18 @@ def update_project(body: ProjectPatch, project: OwnedProject, db: DB) -> Project
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(project: OwnedProject, db: DB, user: CurrentUser) -> None:
-    _lock_user(db, user)  # waits for this user's uploads in progress to finish
+    lock_user(db, user)  # waits for this user's uploads in progress to finish
     project_id = project.id
     db.delete(project)
     db.commit()
     remove_project(project_id)
+
+
+def storage_used(db: DB, user: User) -> int:
+    """Uploaded materials and produced files: both stay on the disk until deleted."""
+    files = db.scalar(select(func.sum(StoredFile.size)).where(StoredFile.user_id == user.id))
+    outputs = db.scalar(select(func.sum(Artifact.size)).where(Artifact.user_id == user.id))
+    return (files or 0) + (outputs or 0)
 
 
 def _check_quota(db: DB, user: User, project: Project, size: int = 0) -> None:
@@ -214,8 +228,7 @@ def _check_quota(db: DB, user: User, project: Project, size: int = 0) -> None:
             status.HTTP_409_CONFLICT,
             detail=f"В проекте уже {count} файлов — это максимум",
         )
-    used = db.scalar(select(func.sum(StoredFile.size)).where(StoredFile.user_id == user.id)) or 0
-    if used + size > settings.max_bytes_per_user:
+    if storage_used(db, user) + size > settings.max_bytes_per_user:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="Место для ваших файлов закончилось — удалите ненужные проекты или файлы",
@@ -223,7 +236,7 @@ def _check_quota(db: DB, user: User, project: Project, size: int = 0) -> None:
 
 
 def _store(db: DB, user: User, project: Project, data: bytes, name: str, kind: str) -> StoredFile:
-    _lock_user(db, user)
+    lock_user(db, user)
     # The project may have been deleted (another tab) while this upload was being read.
     if db.scalar(select(Project.id).where(Project.id == project.id)) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Проект не найден")

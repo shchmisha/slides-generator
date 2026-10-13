@@ -1,0 +1,17 @@
+# Build context is the repository root; only what the Dockerfile copies is let in.
+*
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/alembic.ini
+!backend/alembic/
+!backend/app/
+!skills/pptx-builder/package.json
+!skills/pptx-builder/package-lock.json
+!skills/pptx-builder/SKILL.md
+!skills/pptx-builder/src/
+!skills/pptx-builder/pptx_builder/
+!skills/pptx-builder/themes/
+!skills/pptx-builder/fonts/
+**/__pycache__
+**/.mypy_cache
+**/.ruff_cache

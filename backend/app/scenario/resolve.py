@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.facts.format import format_number, format_quantity, round_half_up
 from app.facts.models import Derived, NameRef, Quantity, RateOp, Series
@@ -61,6 +62,27 @@ def _names_in(value: object) -> set[str]:
     return set()
 
 
+def _in_dependency_order(values: dict[str, Any]) -> list[tuple[str, Any]]:
+    """A value that names another value comes after it. Postgres JSONB does not keep the order
+    of object keys, so the order the model wrote them in is lost once the scenario is stored."""
+    order: list[str] = []
+    state: dict[str, str] = {}
+
+    def visit(name: str) -> None:
+        if state.get(name):  # done, or a cycle: resolving it reports the error
+            return
+        state[name] = "visiting"
+        ref = values[name]
+        if isinstance(ref, NameRef) and ref.name in values:
+            visit(ref.name)
+        state[name] = "done"
+        order.append(name)
+
+    for name in values:
+        visit(name)
+    return [(name, values[name]) for name in order]
+
+
 def resolve_deck(
     scenario: sc.DeckScenario,
     facts: FactStore,
@@ -77,7 +99,7 @@ def resolve_deck(
     # Which operations each name was built with: a claim must not be "proved" by a constant.
     lineage: dict[str, set[str]] = {name: {"ref"} for name in scenario.values}
 
-    for name, ref in scenario.values.items():
+    for name, ref in _in_dependency_order(scenario.values):
         try:
             result = store.resolve(ref)
             label = result.label

@@ -294,7 +294,7 @@ def test_upload_into_a_project_deleted_meanwhile_is_404(
 ) -> None:
     client = signed_up(app)
     project = create(client)
-    real_lock = projects_api._lock_user
+    real_lock = projects_api.lock_user
 
     def other_tab_deletes_first(db: Session, user: Any) -> None:
         with session_factory() as other:
@@ -302,7 +302,7 @@ def test_upload_into_a_project_deleted_meanwhile_is_404(
             other.commit()
         real_lock(db, user)
 
-    monkeypatch.setattr(projects_api, "_lock_user", other_tab_deletes_first)
+    monkeypatch.setattr(projects_api, "lock_user", other_tab_deletes_first)
     assert upload(client, project, "a.docx", make_docx()).status_code == 404
     files = data_dir / "projects" / project / "files"
     assert not files.exists() or list(files.iterdir()) == []

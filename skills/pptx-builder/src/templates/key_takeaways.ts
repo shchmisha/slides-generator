@@ -16,7 +16,7 @@ export function renderKeyTakeaways(slide: KeyTakeawaysSlide, ctx: RenderContext)
             </p>
             <p class="kpi-label" data-pptx="text" data-fit="shrink">${kpi.label}</p>
             ${kpi.delta
-              ? html`<p class="kpi-delta tone-${kpi.tone ?? "neutral"}" data-pptx="text">
+              ? html`<p class="kpi-delta tone-${kpi.tone ?? "neutral"}" data-pptx="text" data-fit="shrink">
                   ${kpi.delta}
                 </p>`
               : ""}

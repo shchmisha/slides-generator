@@ -27,10 +27,40 @@ def artifact_path(project_id: uuid.UUID, artifact_id: uuid.UUID, kind: str) -> P
     return project_dir(project_id) / "artifacts" / f"{artifact_id}{ARTIFACT_EXTENSIONS[kind]}"
 
 
+def logo_path(project_id: uuid.UUID) -> Path:
+    return project_dir(project_id) / "brand" / "logo.png"
+
+
+def scratch_dir(project_id: uuid.UUID, job_id: uuid.UUID, attempt: int) -> Path:
+    """Scratch space for one attempt of one render: inside the project folder (deleting the
+    project deletes it) and on the same volume as the artifacts (moves, not copies). Each
+    attempt has its own, so an attempt presumed dead cannot clean up a newer one's files."""
+    return project_dir(project_id) / "work" / f"{job_id}-{attempt}"
+
+
+def remove_scratch(project_id: uuid.UUID, job_id: uuid.UUID) -> None:
+    """Every attempt's scratch space of a job."""
+    work = project_dir(project_id) / "work"
+    for path in work.glob(f"{job_id}-*"):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def scratch_dirs() -> list[tuple[uuid.UUID, Path]]:
+    """(job id, path) of every scratch dir on the volume, for the startup sweep."""
+    found = []
+    for path in (get_settings().data_dir / "projects").glob("*/work/*-*"):
+        try:
+            found.append((uuid.UUID(path.name.rsplit("-", 1)[0]), path))
+        except ValueError:
+            continue
+    return found
+
+
 def write_file(path: Path, data: bytes) -> None:
-    """Write via a temporary name and rename: a crash never leaves a half-written file."""
+    """Write via a temporary name and rename: a crash never leaves a half-written file, and two
+    writers of the same path (two tabs uploading a logo) never share a temporary file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_suffix(path.suffix + ".part")
+    partial = path.with_name(f".{path.name}.{uuid.uuid4().hex}.part")
     try:
         partial.write_bytes(data)
         partial.replace(path)

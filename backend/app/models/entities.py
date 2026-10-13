@@ -16,12 +16,14 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -76,6 +78,10 @@ class Project(Base):
     title: Mapped[str] = mapped_column(String(200))
     kind: Mapped[str] = mapped_column(String(10))
     settings: Mapped[dict[str, Any]] = mapped_column(JsonDoc, default=dict)
+    # Theme for rendering (colors and fonts, normalised from the user's brand.json); None means
+    # the default theme. The logo lives on disk; its hash says whether there is one.
+    brand: Mapped[dict[str, Any] | None] = mapped_column(JsonDoc, nullable=True)
+    logo_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -108,15 +114,30 @@ class StoredFile(Base):
     project: Mapped[Project] = relationship(back_populates="files")
 
 
+ACTIVE_STATUSES = ("queued", "running")
+ACTIVE_JOB = "status in ('queued', 'running')"
+
+
 class Job(Base):
     """A queued unit of work: `plan` (files → scenario, AI queue) or `render` (scenario →
-    PPTX/MP4, render queue). Postgres is the source of truth; Redis only carries the message."""
+    PPTX/MP4, render queue). Postgres is the source of truth; Redis only carries the message.
+
+    `attempts` is a fencing token: a worker claims the job by raising it and writes results only
+    while it still matches, so a worker that was presumed dead cannot overwrite a newer run."""
 
     __tablename__ = "jobs"
     __table_args__ = (
         CheckConstraint("type in ('plan', 'render')", name="job_type"),
         CheckConstraint(
             "status in ('queued', 'running', 'succeeded', 'failed')", name="job_status"
+        ),
+        # One generation at a time per project, enforced by the database (no check-then-insert).
+        Index(
+            "one_active_job_per_project",
+            "project_id",
+            unique=True,
+            postgresql_where=text(ACTIVE_JOB),
+            sqlite_where=text(ACTIVE_JOB),
         ),
     )
 
@@ -130,7 +151,13 @@ class Job(Base):
     progress: Mapped[int] = mapped_column(Integer, default=0)
     stage: Mapped[str] = mapped_column(String(60), default="в очереди")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)  # user-safe message only
-    timings: Mapped[dict[str, Any]] = mapped_column(JsonDoc, default=dict)
+    timings: Mapped[dict[str, Any]] = mapped_column(JsonDoc, default=dict)  # stage → ms
+    report: Mapped[dict[str, Any]] = mapped_column(JsonDoc, default=dict)  # e.g. layout issues
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Which Redis instance holds the message (see app.jobs.queue): a restart loses the queue.
+    enqueued_epoch: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    enqueued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     scenario_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("scenarios.id", ondelete="SET NULL"), nullable=True
     )
@@ -157,8 +184,10 @@ class Scenario(Base):
     version: Mapped[int] = mapped_column(Integer)
     source: Mapped[str] = mapped_column(String(10))
     content: Mapped[dict[str, Any]] = mapped_column(JsonDoc)
-    # Shown on the review step: warnings, data notes, checked claims.
+    # Shown on the review step: warnings, data notes, checked claims, slides with the numbers.
     report: Mapped[dict[str, Any]] = mapped_column(JsonDoc, default=dict)
+    # What the content is checked against (app.agent.review.Basis); loaded only when needed.
+    basis: Mapped[dict[str, Any]] = mapped_column(JsonDoc, default=dict, deferred=True)
     created_at: Mapped[datetime] = _now()
 
 

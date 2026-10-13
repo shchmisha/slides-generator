@@ -8,6 +8,7 @@ Each result keeps its formula with the actual numbers, which is what the user re
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -309,6 +310,19 @@ def evaluate(op: Operation, store: FactStore) -> Derived:
             result = ev.apply(store.resolve(op.a), store.resolve(op.b), _rate(op.per, op.unit))
         case MeanOp():
             result = _mean(op, store.resolve(op.of), ev)
+    _check_magnitude(result)
     derived = Derived(id=op.id, label=op.label, op=op.op, result=result, warnings=ev.warnings)
     store.add_derived(derived)
     return derived
+
+
+MAX_MAGNITUDE = 1e15  # far beyond any business figure; also the limit of exact formatting
+
+
+def _check_magnitude(result: Resolved) -> None:
+    values = (
+        [result.value] if isinstance(result, Quantity) else [i.quantity.value for i in result.items]
+    )
+    for value in values:
+        if value is not None and (not math.isfinite(value) or abs(value) > MAX_MAGNITUDE):
+            raise FactError("результат больше 10^15 или не число: проверь множители и делители")

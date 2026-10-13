@@ -14,6 +14,7 @@ The best acceptable reply is kept, so a repair round that makes things worse can
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ValidationError
@@ -35,6 +36,7 @@ from app.llm.client import ChatModel, Message
 from app.llm.jsonout import JsonOutputError, extract_json_object
 from app.scenario.deck import DeckScenario
 from app.scenario.lint import lint_deck
+from app.scenario.quotes import quote_errors
 from app.scenario.resolve import ResolvedDeck, ScenarioError, resolve_deck
 from app.scenario.video import VideoScenario, check_video, fit_duration, lint_video
 
@@ -78,11 +80,18 @@ class Plan[S: BaseModel]:
 @dataclass
 class DeckPlan(Plan[DeckScenario]):
     resolved: ResolvedDeck | None = None
+    # What the scenario was checked against, kept so a user's edits get the same checks.
+    tables: list[Table] = field(default_factory=list)  # after quarantine
+    wanted: tuple[int, int] | None = None  # slide range asked for in the materials
+    sources: dict[str, str] = field(default_factory=dict)  # file name → text, for claim quotes
 
 
 @dataclass
 class VideoPlan(Plan[VideoScenario]):
-    pass
+    source_text: str = ""  # after quarantine: the only facts the video may use
+
+
+OnAttempt = Callable[[int], None]  # called with the attempt number before each model call
 
 
 class PlanningError(RuntimeError):
@@ -120,7 +129,7 @@ def repair_message(errors: list[str], findings: list[str] | None = None) -> str:
 
 
 def _run[S: BaseModel](
-    model: ChatModel, system: str, user: str, check: _Check[S]
+    model: ChatModel, system: str, user: str, check: _Check[S], on_attempt: OnAttempt | None = None
 ) -> tuple[Checked[S], list[Attempt], str]:
     messages: list[Message] = [
         {"role": "system", "content": system},
@@ -131,6 +140,8 @@ def _run[S: BaseModel](
     soft_round_used = False
     checked: Checked[S] = Checked(scenario=None)
     for number in range(1, MAX_ATTEMPTS + 1):
+        if on_attempt is not None:
+            on_attempt(number)
         completion = model.complete(messages)
         checked = check(completion.text)
         if completion.truncated and checked.errors:
@@ -186,28 +197,32 @@ class _Check[S: BaseModel]:
             return Checked(scenario=None, errors=validation_errors(exc))
 
     def __call__(self, text: str) -> Checked[S]:
-        return self.parse(text)
+        checked = self.parse(text)
+        return checked if checked.scenario is None else self.check(checked.scenario)
+
+    def check(self, scenario: S) -> Checked[S]:
+        """Checks beyond the schema; also used for a scenario the user edited."""
+        return Checked(scenario=scenario)
 
 
-class _DeckCheck(_Check[DeckScenario]):
+class DeckCheck(_Check[DeckScenario]):
     def __init__(
         self,
         store: FactStore,
         notes: list[Note],
         settings: DeckSettings,
         wanted: tuple[int, int] | None,
+        sources: dict[str, str] | None = None,
     ) -> None:
         super().__init__(DeckScenario)
         self.store = store
         self.notes = notes
         self.settings = settings
         self.wanted = wanted
+        self.sources = sources  # None: the materials' text is unknown, quotes are not checked
 
-    def __call__(self, text: str) -> Checked[DeckScenario]:
-        checked = self.parse(text)
-        scenario = checked.scenario
-        if scenario is None:
-            return checked
+    def check(self, scenario: DeckScenario) -> Checked[DeckScenario]:
+        checked = Checked(scenario=scenario)
         try:
             resolved = resolve_deck(
                 scenario, self.store, self.notes, auto_data_notes=not self.settings.slides
@@ -216,6 +231,8 @@ class _DeckCheck(_Check[DeckScenario]):
             checked.errors += exc.errors
             return checked
         checked.resolved = resolved
+        if self.sources is not None:
+            checked.errors += quote_errors(scenario.claims, self.sources)
         count = len(resolved.spec.slides)
         if self.settings.slides and count != self.settings.slides:
             checked.errors.append(
@@ -226,19 +243,17 @@ class _DeckCheck(_Check[DeckScenario]):
         return checked
 
 
-class _VideoCheck(_Check[VideoScenario]):
+class VideoCheck(_Check[VideoScenario]):
     def __init__(self, source_text: str, settings: VideoSettings) -> None:
         super().__init__(VideoScenario)
         self.source_text = source_text
         self.settings = settings
         self.adjustments: list[str] = []
 
-    def __call__(self, text: str) -> Checked[VideoScenario]:
-        checked = self.parse(text)
-        if checked.scenario is None:
-            return checked
+    def check(self, scenario: VideoScenario) -> Checked[VideoScenario]:
+        checked = Checked(scenario=scenario)
         s = self.settings
-        scenario, fitted = fit_duration(checked.scenario, s.min_seconds, s.max_seconds)
+        scenario, fitted = fit_duration(scenario, s.min_seconds, s.max_seconds)
         checked.scenario = scenario
         checked.errors = check_video(scenario, self.source_text, s.min_seconds, s.max_seconds)
         checked.findings = lint_video(scenario, self.source_text)
@@ -261,17 +276,21 @@ def plan_deck(
     notes: list[Note],
     settings: DeckSettings,
     model: ChatModel,
+    on_attempt: OnAttempt | None = None,
 ) -> DeckPlan:
     documents, tables, quarantined = _quarantine(documents, store.tables)
     store = FactStore(tables)
     notes = [*notes, *quarantined]
     wanted = (settings.slides, settings.slides) if settings.slides else slide_range(documents)
-    check = _DeckCheck(store, notes, settings, wanted)
+    sources = document_texts(documents)
+    check = DeckCheck(store, notes, settings, wanted, sources)
     user = (
         render_materials(documents, tables, notes, build_digest(tables))
         + f"\n\n{AFTER_MATERIALS}\nСоставь сценарий презентации по этим материалам."
     )
-    checked, attempts, raw = _run(model, deck_system_prompt(settings, wanted), user, check)
+    checked, attempts, raw = _run(
+        model, deck_system_prompt(settings, wanted), user, check, on_attempt
+    )
     if checked.scenario is None:  # _run returns only acceptable replies
         raise PlanningError(checked.errors, attempts)
     resolved = checked.resolved
@@ -283,6 +302,9 @@ def plan_deck(
         warnings=warnings,
         notes=notes,
         resolved=resolved,
+        tables=tables,
+        wanted=wanted,
+        sources=sources,
     )
 
 
@@ -290,17 +312,30 @@ def source_text(documents: list[Document]) -> str:
     return "\n".join(block.text for doc in documents for block in doc.blocks)
 
 
-def plan_video(documents: list[Document], settings: VideoSettings, model: ChatModel) -> VideoPlan:
+def document_texts(documents: list[Document]) -> dict[str, str]:
+    """File name → its text (after quarantine): what a claim may quote."""
+    texts: dict[str, str] = {}
+    for doc in documents:
+        texts[doc.filename] = "\n".join(filter(None, [texts.get(doc.filename), source_text([doc])]))
+    return texts
+
+
+def plan_video(
+    documents: list[Document],
+    settings: VideoSettings,
+    model: ChatModel,
+    on_attempt: OnAttempt | None = None,
+) -> VideoPlan:
     documents, quarantined = quarantine_documents(documents)
     # Numbers allowed in the video come from the text after quarantine: a planted line
     # cannot widen the list of facts.
     text = source_text(documents)
-    check = _VideoCheck(text, settings)
+    check = VideoCheck(text, settings)
     materials = (
         "<материалы>\n" + "\n\n".join(render_document(d) for d in documents) + "\n</материалы>"
     )
     user = f"{materials}\n\n{AFTER_MATERIALS}\nНапиши сценарий ролика по этому тексту."
-    checked, attempts, raw = _run(model, video_system_prompt(settings), user, check)
+    checked, attempts, raw = _run(model, video_system_prompt(settings), user, check, on_attempt)
     if checked.scenario is None:
         raise PlanningError(checked.errors, attempts)
     return VideoPlan(
@@ -309,4 +344,5 @@ def plan_video(documents: list[Document], settings: VideoSettings, model: ChatMo
         raw=raw,
         warnings=checked.findings + check.adjustments[-1:],
         notes=quarantined,
+        source_text=text,
     )

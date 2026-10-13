@@ -54,6 +54,15 @@ class Settings(BaseSettings):
     # Swagger UI and the OpenAPI schema: handy locally, a map of the API for anyone otherwise.
     enable_api_docs: bool = False
 
+    # Generations: one at a time per project (a database index), a few at a time per user, so
+    # one account cannot take all the workers ("up to 5 concurrent generations" in the brief).
+    max_active_jobs_per_user: int = Field(default=3, ge=1)
+    max_scenario_versions: int = Field(default=100, ge=1)
+
+    # The pptx-builder skill (Python scripts + Node layout) as installed in the render image.
+    pptx_skill_dir: Path = Path("/opt/skills/pptx-builder")
+    render_timeout_s: int = Field(default=300, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

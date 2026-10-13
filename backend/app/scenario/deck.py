@@ -7,15 +7,20 @@ placeholders: "{yoy}", "{completion[Урал]}", "{deviation[Урал]:+}" (with
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from app.facts.models import Operation, Ref
+from app.scenario.clean import clean_text
 
 Name = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,47}$")]
 # A name, or one item of a named series: "yoy", "completion[Урал]".
-ValueRef = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{0,47}(\[[^\]\[{}]{1,80}\])?$")]
-ShortText = Annotated[str, Field(min_length=1, max_length=120)]
-Text = Annotated[str, Field(min_length=1, max_length=320)]
+ValueRef = Annotated[
+    str,
+    Field(pattern=r"^[a-z][a-z0-9_]{0,47}(\[[^\]\[{}]{1,80}\])?$"),
+    AfterValidator(clean_text),
+]
+ShortText = Annotated[str, Field(min_length=1, max_length=120), AfterValidator(clean_text)]
+Text = Annotated[str, Field(min_length=1, max_length=320), AfterValidator(clean_text)]
 Tone = Literal["positive", "negative", "neutral"]
 SeriesColor = Literal["primary", "accent", "muted", "grid", "positive", "negative"]
 

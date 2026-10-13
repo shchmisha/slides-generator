@@ -11,7 +11,8 @@ x-hardening: &hardening
     - ALL
   restart: unless-stopped
 
-# The backend image is built once (by `api`) and reused by migrate and both workers.
+# The backend image is built once (by `api`) and reused by migrate and the AI worker; the render
+# worker has its own image (the same code plus Node, Chromium, fonts and the pptx skill).
 x-backend: &backend
   <<: *hardening
   image: slides-generator/backend:local
@@ -66,7 +67,10 @@ services:
 
   api:
     <<: *backend
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
     environment:
       <<: *backend-env
       # Only nginx can reach the API (no published port), so its forwarded client IP is trusted.
@@ -93,10 +97,11 @@ services:
       timeout: 5s
       retries: 20
 
-  # "AI module": file parsing and LLM calls (I/O-bound → higher concurrency).
+  # "AI module": file parsing and LLM calls. Waiting on the model is I/O, so five run at once:
+  # the brief's "up to 5 concurrent generations".
   worker-ai:
     <<: *backend
-    command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "ai", "-n", "ai@%h", "-c", "4", "--loglevel=INFO"]
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "ai", "-n", "ai@%h", "-c", "5", "--loglevel=INFO"]
     environment:
       <<: *backend-env
       LLM_BASE_URL: ${LLM_BASE_URL}
@@ -110,9 +115,19 @@ services:
       redis:
         condition: service_healthy
 
-  # PPTX/MP4 rendering (CPU/RAM-heavy → low concurrency).
+  # PPTX/MP4 rendering: headless Chromium is CPU- and memory-heavy, so two at a time; more
+  # would only slow each other down on a server without a GPU.
   worker-render:
     <<: *backend
+    image: slides-generator/render:local
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: render
+    pull_policy: build
+    # Reaps Chromium's helper processes; /dev/shm is where Chromium keeps rendered pages.
+    init: true
+    shm_size: 512m
     command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "render", "-n", "render@%h", "-c", "2", "--loglevel=INFO"]
     depends_on:
       migrate:

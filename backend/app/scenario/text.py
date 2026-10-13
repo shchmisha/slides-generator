@@ -70,7 +70,8 @@ def typed_numbers(text: str, rate_bases: frozenset[str] = frozenset()) -> list[s
     ten fixed by the schema, so they can label a rate but cannot fake a figure.
     """
     literal = PLACEHOLDER.sub(" ", text)
-    literal = _RATE_PHRASE.sub("на", literal)
+    # "на 1000 заказов" only when the scenario computes a rate per 1000.
+    literal = _RATE_PHRASE.sub(lambda m: "на" if m.group(1) in rate_bases else m.group(0), literal)
     literal = _HUNDRED_PERCENT.sub(" ", literal)
     found = [t for t in _NUMBER.findall(literal) if not _free_number_ok(t) and t not in rate_bases]
     found += [m.group(0) for m in _NUMBER_WORDS.finditer(literal)]

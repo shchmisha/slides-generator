@@ -67,6 +67,18 @@ def counter() -> FakeCounter:
     return FakeCounter()
 
 
+@pytest.fixture(autouse=True)
+def sent(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, list[Any], str]]:
+    """Messages "sent" to Celery: no test talks to a real broker."""
+    messages: list[tuple[str, list[Any], str]] = []
+
+    def send_task(name: str, args: list[Any], queue: str, **_: Any) -> None:
+        messages.append((name, args, queue))
+
+    monkeypatch.setattr("app.jobs.queue.celery_app.send_task", send_task)
+    return messages
+
+
 @pytest.fixture
 def app(session_factory: sessionmaker[Session], counter: FakeCounter, data_dir: Path) -> Any:
     application = create_app()

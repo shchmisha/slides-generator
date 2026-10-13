@@ -1,0 +1,9 @@
+{
+  "_comment": "Free fonts listed after a brand font in CSS, so a machine without the brand font measures text as PowerPoint will draw it. Same metrics, except where noted. Read by src/fonts.ts and by the backend's font warnings.",
+  "arial": ["Liberation Sans"],
+  "helvetica": ["Liberation Sans"],
+  "times new roman": ["Liberation Serif"],
+  "times": ["Liberation Serif"],
+  "courier new": ["Liberation Mono"],
+  "georgia": ["Gelasio", "DejaVu Serif"]
+}
