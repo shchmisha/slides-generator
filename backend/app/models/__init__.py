@@ -9,6 +9,17 @@ from app.models.entities import (
     Scenario,
     StoredFile,
     User,
+    VoiceSettings,
 )
 
-__all__ = ["Artifact", "AuthSession", "Base", "Job", "Project", "Scenario", "StoredFile", "User"]
+__all__ = [
+    "Artifact",
+    "AuthSession",
+    "Base",
+    "Job",
+    "Project",
+    "Scenario",
+    "StoredFile",
+    "User",
+    "VoiceSettings",
+]

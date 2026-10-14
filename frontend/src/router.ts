@@ -5,6 +5,7 @@ import { loadUser, setUser } from "./composables/session";
 import LoginView from "./views/LoginView.vue";
 import ProjectsView from "./views/ProjectsView.vue";
 import ProjectView from "./views/ProjectView.vue";
+import SettingsView from "./views/SettingsView.vue";
 
 export const STEPS = ["materials", "scenario", "result", "history"] as const;
 export type Step = (typeof STEPS)[number];
@@ -21,6 +22,7 @@ export const router = createRouter({
       component: ProjectView,
       props: true,
     },
+    { path: "/settings", name: "settings", component: SettingsView },
     { path: "/:rest(.*)*", redirect: "/projects" },
   ],
 });

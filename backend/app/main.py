@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api import artifacts, auth, brand, health, jobs, projects, scenarios
+from app.api import artifacts, auth, brand, health, jobs, projects, scenarios, voice
 from app.api.errors import describe_errors
 from app.auth.deps import require_csrf_header
 from app.config import get_settings
@@ -27,7 +27,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api")
     csrf = [Depends(require_csrf_header)]
     app.include_router(auth.router, prefix="/api", dependencies=csrf)
-    for module in (projects, brand, scenarios, jobs, artifacts):
+    for module in (projects, brand, scenarios, jobs, artifacts, voice):
         app.include_router(module.router, prefix="/api", dependencies=csrf)
 
     @app.exception_handler(RequestValidationError)

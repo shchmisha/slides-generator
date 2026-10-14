@@ -17,6 +17,21 @@ export interface User {
   email: string;
 }
 
+/** Voice-over with the user's own ElevenLabs key; the key itself is never sent back. */
+export interface VoiceStatus {
+  enabled: boolean;
+  voice_id: string | null;
+  voice_name: string | null;
+  updated_at: string | null;
+  model: string;
+}
+
+export interface VoiceInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
 export interface FileOut {
   id: string;
   filename: string;

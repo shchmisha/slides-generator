@@ -25,6 +25,7 @@ from app.db import get_db
 from app.main import create_app
 from app.models import Base
 from app.redis_client import get_redis
+from app.security import vault
 
 from .api_support import FakeCounter
 
@@ -57,10 +58,12 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
 
 
 @pytest.fixture
-def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     monkeypatch.setattr(get_settings(), "data_dir", tmp_path)
     monkeypatch.setattr(get_settings(), "spool_dir", tmp_path / "spool")
-    return tmp_path
+    vault.reset_cache()  # the generated secrets key lives on the data volume
+    yield tmp_path
+    vault.reset_cache()
 
 
 @pytest.fixture

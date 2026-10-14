@@ -28,6 +28,7 @@ async function signOut(): Promise<void> {
     <RouterLink to="/projects" class="topbar-brand">Генератор презентаций и роликов</RouterLink>
     <div v-if="currentUser" class="topbar-user">
       <span class="muted-light">{{ currentUser.email }}</span>
+      <RouterLink to="/settings" class="link-light">Настройки</RouterLink>
       <button type="button" class="link-light" @click="signOut">Выйти</button>
     </div>
   </header>

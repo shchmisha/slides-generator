@@ -12,6 +12,8 @@ import type {
   Scenario,
   ScenarioSummary,
   User,
+  VoiceInfo,
+  VoiceStatus,
 } from "./types";
 
 const enc = encodeURIComponent;
@@ -72,6 +74,14 @@ export const scenarios = {
       base_version: baseVersion,
       content,
     }),
+};
+
+export const voice = {
+  status: () => apiGet<VoiceStatus>("/voice"),
+  setKey: (apiKey: string) => apiPut<VoiceStatus>("/voice", { api_key: apiKey }),
+  choose: (voiceId: string) => apiPatch<VoiceStatus>("/voice", { voice_id: voiceId }),
+  voices: () => apiGet<VoiceInfo[]>("/voice/voices"),
+  remove: () => apiDelete("/voice"),
 };
 
 export const artifacts = {

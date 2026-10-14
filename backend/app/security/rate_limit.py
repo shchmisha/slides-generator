@@ -44,6 +44,8 @@ REGISTER_PER_IP = Limit("register-ip", 10, 3600)
 UPLOAD_PER_USER = Limit("upload", 60, 3600)
 PROJECT_PER_USER = Limit("project", 60, 3600)
 JOB_PER_USER = Limit("job", 30, 3600)
+# Each call reaches ElevenLabs with the user's key: enough to set up, not to probe keys.
+VOICE_PER_USER = Limit("voice", 30, 3600)
 
 
 def _key(limit: Limit, key: str) -> str:

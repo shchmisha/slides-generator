@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     # Scratch space shared with the renderer: inputs and outputs of each render attempt.
     spool_dir: Path = Path("/spool")
 
+    # Fernet keys for user secrets at rest (the ElevenLabs key), comma-separated: the first
+    # encrypts, all decrypt (rotation). Empty: a key is generated once in DATA_DIR/secrets.
+    secrets_key: SecretStr = SecretStr("")
+    # Voice-over with the user's own ElevenLabs key (none: the video has no sound).
+    elevenlabs_base_url: str = "https://api.elevenlabs.io"
+    voice_model: str = "eleven_v4"
+    voice_default_id: str = "JBFqnCBsd6RMkjVDRZzb"  # "George", a premade voice every account has
+    voice_timeout_s: float = Field(default=60, gt=0)
+
 
 @lru_cache
 def get_settings() -> Settings:

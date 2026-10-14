@@ -25,6 +25,13 @@ x-backend: &backend
     DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
 
+# The user's ElevenLabs key is decrypted only where a voice is needed: the API (checking the
+# key, listing voices) and the render worker (narration). Never in the renderer.
+x-voice-env: &voice-env
+  SECRETS_KEY: ${SECRETS_KEY:-}
+  VOICE_MODEL: ${VOICE_MODEL:-}
+  ELEVENLABS_BASE_URL: ${ELEVENLABS_BASE_URL:-}
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -73,7 +80,7 @@ services:
       dockerfile: backend/Dockerfile
       target: runtime
     environment:
-      <<: *backend-env
+      <<: [*backend-env, *voice-env]
       # Only nginx can reach the API (no published port), so its forwarded client IP is trusted.
       FORWARDED_ALLOW_IPS: "*"
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
@@ -123,7 +130,7 @@ services:
     <<: *backend
     command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "render", "-n", "render@%h", "-c", "2", "--loglevel=INFO"]
     environment:
-      <<: *backend-env
+      <<: [*backend-env, *voice-env]
       RENDERER_URL: http://renderer:8000
     volumes:
       - appdata:/data

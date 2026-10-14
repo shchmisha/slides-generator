@@ -18,6 +18,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -53,6 +54,22 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime] = _now()
+
+
+class VoiceSettings(Base):
+    """The user's ElevenLabs key (encrypted, see app/security/vault.py) and chosen voice. Its own
+    table: the ciphertext is read only where a voice is needed, never with the user row."""
+
+    __tablename__ = "voice_settings"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    api_key: Mapped[bytes] = mapped_column(LargeBinary)
+    voice_id: Mapped[str] = mapped_column(String(64))
+    voice_name: Mapped[str] = mapped_column(String(100))
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = _now()
 
 
 class AuthSession(Base):
