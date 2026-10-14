@@ -50,6 +50,10 @@ class ResolvedDeck:
     claims: list[ClaimCheck]
     derived: list[Derived]
     warnings: list[str] = field(default_factory=list)
+    # For each slide of `spec`: the index of the scenario slide it came from, None for the
+    # «Проверка данных» slide added automatically (a data_notes slide with nothing to say is
+    # left out, so the two lists can differ).
+    origins: list[int | None] = field(default_factory=list)
 
 
 def _names_in(value: object) -> set[str]:
@@ -135,12 +139,16 @@ def resolve_deck(
     title = resolver.text(scenario.title, "title") or ""
     if errors:
         raise ScenarioError(errors)
+    origins: list[int | None] = [i for i, s in enumerate(slides) if s is not None]
+    if len(slides) > len(scenario.slides) and slides[-1] is not None:
+        origins[-1] = None  # appended above
     spec = rd.DeckSpec(title=title, footer=footer, slides=[s for s in slides if s is not None])
     return ResolvedDeck(
         spec=spec,
         claims=resolver.claim_checks,
         derived=store.derived,
         warnings=warnings,
+        origins=origins,
     )
 
 

@@ -16,8 +16,10 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any, get_args
 
 from pydantic import BaseModel, ValidationError
+from pydantic_core import ErrorDetails
 
 from app.agent.materials import render_document, render_materials
 from app.agent.prompts import (
@@ -29,12 +31,12 @@ from app.agent.quarantine import quarantine_documents, quarantine_tables
 from app.agent.requirements import slide_range
 from app.agent.settings import DeckSettings, VideoSettings
 from app.facts.digest import build_digest
-from app.facts.models import Table
+from app.facts.models import Operation, Table
 from app.facts.store import FactStore
 from app.ingest.models import Document, Note
 from app.llm.client import ChatModel, Message
 from app.llm.jsonout import JsonOutputError, extract_json_object
-from app.scenario.deck import DeckScenario
+from app.scenario.deck import DeckScenario, Slide
 from app.scenario.lint import lint_deck
 from app.scenario.quotes import quote_errors
 from app.scenario.resolve import ResolvedDeck, ScenarioError, resolve_deck
@@ -103,12 +105,69 @@ class PlanningError(RuntimeError):
         self.attempts = attempts
 
 
+def _tags(union: Any, field: str) -> set[str]:
+    """The discriminator values of a tagged union (pydantic puts them into error paths)."""
+    members = get_args(get_args(union)[0])
+    return {str(get_args(m.model_fields[field].annotation)[0]) for m in members}
+
+
+# "slides.2.key_takeaways.title" → "slides[2].title": the tag and union member names are
+# noise for the model and for a person; indexes read like the rest of our messages.
+_TAGS = _tags(Slide, "type") | _tags(Operation, "op")
+
+
+def _path(loc: tuple[int | str, ...]) -> str:
+    path = ""
+    for i, part in enumerate(loc):
+        if isinstance(part, int):
+            path += f"[{part}]"
+        elif (i > 0 and isinstance(loc[i - 1], int) and part in _TAGS) or not part[:1].islower():
+            continue  # a union member: "key_takeaways", "CellRef", "function-after[...]"
+        elif "[" in part or "-" in part:
+            continue
+        else:
+            path += f".{part}" if path else part
+    return path
+
+
+def _message(err: ErrorDetails) -> str:
+    ctx = err.get("ctx") or {}
+    match err["type"]:
+        case "missing":
+            return "обязательное поле"
+        case "string_too_short":
+            return "не может быть пустым" if ctx.get("min_length") == 1 else "слишком коротко"
+        case "string_too_long":
+            return f"слишком длинно: не больше {ctx.get('max_length')} символов"
+        case "too_short":
+            return f"слишком мало: нужно не меньше {ctx.get('min_length')}"
+        case "too_long":
+            return f"слишком много: не больше {ctx.get('max_length')}"
+        case "literal_error":
+            return f"недопустимое значение, можно: {ctx.get('expected')}"
+        case "union_tag_invalid":
+            return f"неизвестный тип «{ctx.get('tag')}», можно: {ctx.get('expected_tags')}"
+        case "extra_forbidden":
+            return "лишнее поле"
+        case "greater_than_equal":
+            return f"не меньше {ctx.get('ge')}"
+        case "less_than_equal":
+            return f"не больше {ctx.get('le')}"
+        case "int_parsing" | "float_parsing" | "int_type" | "float_type":
+            return "нужно число"
+        case "string_pattern_mismatch":
+            return "недопустимое имя: латинские буквы, цифры и _"
+        case "value_error":
+            return str(err["msg"]).removeprefix("Value error, ")
+    return str(err["msg"])
+
+
 def validation_errors(exc: ValidationError) -> list[str]:
-    errors = []
-    for err in exc.errors()[:MAX_ERRORS_SHOWN]:
-        path = ".".join(str(part) for part in err["loc"])
-        errors.append(f"{path or 'сценарий'}: {err['msg']}")
-    return errors
+    """Schema errors in the same form as our own checks: "slides[2].title: обязательное поле"."""
+    return [
+        f"{_path(tuple(err['loc'])) or 'сценарий'}: {_message(err)}"
+        for err in exc.errors()[:MAX_ERRORS_SHOWN]
+    ]
 
 
 def _section(title: str, items: list[str]) -> str:

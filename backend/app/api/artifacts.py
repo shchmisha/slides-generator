@@ -89,6 +89,7 @@ def download(artifact_id: uuid.UUID, db: DB, user: CurrentUser) -> FileResponse:
         media_type=MEDIA_TYPES[artifact.kind],
         filename=download_name(title, artifact),
         content_disposition_type="inline" if inline else "attachment",
-        # Content never changes for an id; it is private to the user.
-        headers={"Cache-Control": "private, max-age=86400, immutable"},
+        # Private, and revalidated on every use (cheap: ETag), so after signing out the
+        # browser does not keep serving it from its cache.
+        headers={"Cache-Control": "private, no-cache"},
     )

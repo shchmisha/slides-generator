@@ -164,7 +164,7 @@ def _plan(
             video = plan_video(documents, video_settings, model, on_attempt)
             plan = video
             content = video.scenario.model_dump(mode="json", exclude_none=True)
-            report = video_report(video.scenario, video.warnings, video.notes)
+            report = video_report(video.scenario, video.warnings, video.notes, video_settings)
             basis = video_basis(video, video_settings).model_dump(mode="json")
     except PlanningError as exc:
         timings["llm_ms"] = round(sum(a.latency_ms for a in exc.attempts))

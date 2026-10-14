@@ -199,3 +199,20 @@ def test_video_edit_keeps_the_notes_shown_to_the_user() -> None:
         ],
     }
     assert review(content, basis).report["notes"][0]["message"] == "Удалена инструкция"
+
+
+def test_report_maps_preview_slides_and_lists_values(
+    board: dict[str, Any], basis: DeckBasis
+) -> None:
+    report = review(board, basis).report
+    count = len(board["slides"])
+    # The «Проверка данных» slide was not in the scenario: added automatically, at the end.
+    assert report["preview_origins"] == [*range(count), None]
+    names = {v["name"]: v for v in report["values"]}
+    assert names["rev_fact"]["value"] == "2\u00a0877\u00a0млн ₽"
+    assert any(i["key"] == "Урал" for i in names["completion"]["items"])
+
+    with_notes = copy.deepcopy(board)
+    with_notes["slides"].insert(1, {"type": "data_notes"})
+    origins = review(with_notes, basis).report["preview_origins"]
+    assert origins == list(range(count + 1))  # placed where the scenario put it

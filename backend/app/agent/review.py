@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.agent.planner import DeckCheck, DeckPlan, VideoCheck, VideoPlan, validation_errors
 from app.agent.settings import DeckSettings, VideoSettings
-from app.facts.models import Table
+from app.facts.models import Derived, Quantity, Table
 from app.facts.store import FactStore
 from app.ingest.models import Note
 from app.scenario.deck import DeckScenario
@@ -81,15 +81,47 @@ def deck_report(
         "slides": len(resolved.spec.slides),
         # The slides with every number filled in: what the user actually reviews.
         "preview": resolved.spec.model_dump(mode="json", by_alias=True, exclude_none=True),
+        "preview_origins": resolved.origins,
+        # Every name a text may use, with its figure: shown in place of {placeholders} and
+        # offered in the editor, so a user adds numbers from the data, never typed ones.
+        "values": [_value(d) for d in resolved.derived],
     }
 
 
-def video_report(scenario: VideoScenario, warnings: list[str], notes: list[Note]) -> dict[str, Any]:
+def _value(derived: Derived) -> dict[str, Any]:
+    result = derived.result
+    if isinstance(result, Quantity):
+        return {
+            "name": derived.id,
+            "label": derived.label,
+            "value": result.formatted(),
+            "signed": result.formatted(signed=True),
+        }
+    return {
+        "name": derived.id,
+        "label": derived.label,
+        "items": [
+            {
+                "key": item.key,
+                "value": item.quantity.formatted(),
+                "signed": item.quantity.formatted(signed=True),
+            }
+            for item in result.items
+        ],
+    }
+
+
+def video_report(
+    scenario: VideoScenario, warnings: list[str], notes: list[Note], settings: VideoSettings
+) -> dict[str, Any]:
     return {
         "warnings": list(dict.fromkeys(warnings)),
         "notes": _notes(notes),
         "seconds": round(sum(scene.duration_s for scene in scenario.scenes), 1),
         "scenes": len(scenario.scenes),
+        # The range this scenario is checked against: the settings at planning time.
+        "min_seconds": settings.min_seconds,
+        "max_seconds": settings.max_seconds,
     }
 
 
@@ -143,5 +175,5 @@ def _review_video(content: dict[str, Any], basis: VideoBasis) -> Review:
     return Review(
         content=fitted.model_dump(mode="json", exclude_none=True),
         errors=checked.errors,
-        report=video_report(fitted, warnings, basis.notes),
+        report=video_report(fitted, warnings, basis.notes, basis.settings),
     )

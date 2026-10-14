@@ -16,9 +16,9 @@ describe("fetchHealth", () => {
     await expect(fetchHealth()).resolves.toEqual({ status: "ok", database: "ok", redis: "ok" });
   });
 
-  it("returns null on 503 instead of throwing", async () => {
+  it("returns the body on 503: it says what is down", async () => {
     mockFetch(503, { status: "fail", database: "fail", redis: "ok" });
-    await expect(fetchHealth()).resolves.toBeNull();
+    await expect(fetchHealth()).resolves.toEqual({ status: "fail", database: "fail", redis: "ok" });
   });
 
   it("throws ApiError with the server detail on other errors", async () => {

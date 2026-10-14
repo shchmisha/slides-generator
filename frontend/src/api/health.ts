@@ -13,12 +13,14 @@ export interface Workers {
   queues: Record<string, number>;
 }
 
-/** Health endpoints answer 503 with a body; surface that body instead of throwing. */
+/** Health endpoints answer 503 with a body saying what is down: return that body. */
 async function getAllowingUnavailable<T>(path: string): Promise<T | null> {
   try {
     return await apiGet<T>(path);
   } catch (err) {
-    if (err instanceof ApiError && err.status === 503) return null;
+    if (err instanceof ApiError && err.status === 503) {
+      return err.body && typeof err.body === "object" ? (err.body as T) : null;
+    }
     throw err;
   }
 }

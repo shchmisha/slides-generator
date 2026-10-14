@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from app.facts.models import Cell, Row, Table
+from app.facts.models import Cell, Column, Row, Table
 from app.ingest.models import Block, Document, Note
 
 _OVERRIDE = re.compile(
@@ -101,7 +101,9 @@ def quarantine_documents(documents: list[Document]) -> tuple[list[Document], lis
 
 
 def quarantine_tables(tables: list[Table]) -> tuple[list[Table], list[Note]]:
-    """Text inside tables (titles, labels, text cells) is checked too; a match is masked."""
+    """Text inside tables is checked too: the title, the header of the label column, column
+    and row labels, text cells. A match is masked. Masked labels are numbered, so they stay
+    unique and references to the table's other cells keep working."""
     notes: list[Note] = []
     masked_text = "[скрыто: похоже на указание для модели]"
     out = []
@@ -110,17 +112,31 @@ def quarantine_tables(tables: list[Table]) -> tuple[list[Table], list[Note]]:
         if reason := instruction_reason(table.title):
             notes.append(_note(table.source, "заголовок таблицы", reason, table.title))
             updates["title"] = masked_text
+        if reason := instruction_reason(table.row_header):
+            notes.append(_note(table.source, "заголовок первого столбца", reason, table.row_header))
+            updates["row_header"] = masked_text
+        columns: list[Column] = []
+        for i, column in enumerate(table.columns, start=1):
+            if reason := instruction_reason(column.label):
+                notes.append(_note(table.source, f"столбец {i}", reason, column.label))
+                column = column.model_copy(update={"label": f"[скрыт столбец {i}]"})
+            columns.append(column)
+        updates["columns"] = columns
         rows: list[Row] = []
-        for row in table.rows:
+        for n, row in enumerate(table.rows, start=1):
+            label = row.label
+            if reason := instruction_reason(row.label):
+                notes.append(_note(table.source, f"строка {n}", reason, row.label))
+                label = f"[скрыта строка {n}]"
             cells: list[Cell] = []
-            for column, cell in zip(table.columns, row.cells, strict=True):
+            for column, cell in zip(columns, row.cells, strict=True):
                 if cell.text and (reason := instruction_reason(cell.text)):
                     notes.append(
-                        _note(table.source, f"{row.label} › {column.label}", reason, cell.text)
+                        _note(table.source, f"{label} › {column.label}", reason, cell.text)
                     )
                     cell = cell.model_copy(update={"text": masked_text})
                 cells.append(cell)
-            rows.append(row.model_copy(update={"cells": cells}))
+            rows.append(row.model_copy(update={"label": label, "cells": cells}))
         updates["rows"] = rows
         out.append(table.model_copy(update=updates))
     return out, notes
