@@ -1,4 +1,4 @@
-"""The renderer's HTTP interface and the worker's client, with a fake deck build."""
+"""The renderer's HTTP interface and the worker's client, with fake deck and video builds."""
 
 from __future__ import annotations
 
@@ -11,9 +11,10 @@ from typing import Any
 import pytest
 
 from app.config import get_settings
-from app.render.skill import SkillError, build_deck
+from app.render.skill import SkillError, build_deck, build_video
 from app.sandbox import server
 from app.sandbox.deck import DeckBuild, RenderError
+from app.sandbox.video import VideoBuild
 
 
 @pytest.fixture
@@ -126,3 +127,36 @@ def test_unreachable_renderer_is_a_readable_error(
     monkeypatch.setattr(get_settings(), "renderer_url", "http://127.0.0.1:9")  # nothing listens
     with pytest.raises(SkillError, match="недоступен"):
         build_deck("{}", {}, None, tmp_path / f"{uuid.uuid4()}-1")
+
+
+def test_video_is_recorded_in_the_renderer(
+    renderer: tuple[server.Settings, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, spool = renderer
+
+    def record(
+        spec: str, theme: dict[str, Any], logo: bytes | None, workdir: Path, **kw: Any
+    ) -> VideoBuild:
+        out = workdir / "out"
+        out.mkdir(parents=True)
+        (out / "video.mp4").write_bytes(b"mp4")
+        (out / "scene-01.png").write_bytes(b"png")
+        record.seen = (spec, logo, kw["timeout_s"])  # type: ignore[attr-defined]
+        return VideoBuild(out / "video.mp4", [out / "scene-01.png"], 12.5, {"record_ms": 9.0})
+
+    monkeypatch.setattr(server, "build_video", record)
+    workdir = job_dir(spool)
+    result = build_video('{"scenes": []}', {}, None, workdir)
+    assert result.video == workdir / "out" / "video.mp4" and result.duration == 12.5
+    assert [p.name for p in result.posters] == ["scene-01.png"]
+    assert record.seen == ('{"scenes": []}', None, 900)
+
+
+def test_unexpected_video_names_are_not_trusted(
+    renderer: tuple[server.Settings, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, spool = renderer
+    answer = {"video": "out/video.mp4", "posters": ["../x/scene-01.png"], "duration": 1}
+    monkeypatch.setattr(server, "render_video", lambda settings, body: answer)
+    with pytest.raises(SkillError, match="Не удалось записать видео"):
+        build_video("{}", {}, None, job_dir(spool))

@@ -5,7 +5,9 @@ are stored in the database for display and never touch the file system, so there
 to traverse with "../" or to collide on.
 """
 
+import os
 import shutil
+import stat
 import uuid
 from pathlib import Path
 
@@ -53,6 +55,55 @@ def scratch_dirs() -> list[tuple[uuid.UUID, Path]]:
         except ValueError:
             continue
     return found
+
+
+def _open_in_spool(path: Path) -> int:
+    """A descriptor for a regular file the renderer wrote under SPOOL_DIR, opened without
+    following a link at any step. The renderer is not trusted: a link it left in the spool
+    could point at another project's files on the data volume, which this worker can read."""
+    spool = get_settings().spool_dir
+    parts = path.relative_to(spool).parts
+    if not parts or any(part in ("", ".", "..") for part in parts):
+        raise OSError(f"not a spool file: {path}")
+    folder = os.open(spool, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for name in parts[:-1]:
+            inner = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=folder)
+            os.close(folder)
+            folder = inner
+        # O_NONBLOCK: a FIFO in place of the file must not hang the worker on open.
+        fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=folder)
+    finally:
+        os.close(folder)
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        raise OSError(f"not a regular file: {path}")
+    return fd
+
+
+def read_spool_file(path: Path, max_bytes: int) -> bytes:
+    with os.fdopen(_open_in_spool(path), "rb") as source:
+        return source.read(max_bytes + 1)[:max_bytes]
+
+
+def take_from_spool(source: Path, target: Path, max_bytes: int) -> int:
+    """Copy a renderer output onto the data volume (a new file at `target`); returns its size.
+    The scratch folder, source included, is removed by the caller afterwards."""
+    with os.fdopen(_open_in_spool(source), "rb") as reader:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        writer = target.open("xb")  # a fresh id: never someone else's file
+        try:
+            with writer:
+                while chunk := reader.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise OSError(f"{source.name} is over {max_bytes} bytes")
+                    writer.write(chunk)
+        except BaseException:
+            target.unlink(missing_ok=True)
+            raise
+    return size
 
 
 def write_file(path: Path, data: bytes) -> None:

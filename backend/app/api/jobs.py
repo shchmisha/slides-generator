@@ -151,8 +151,6 @@ def start_render(
     redis: RedisDep,
     body: RenderIn | None = None,
 ) -> JobOut:
-    if project.kind != "deck":
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="Сборка видео пока не подключена")
     rate_limit.check(redis, rate_limit.JOB_PER_USER, str(user.id))
     if storage_used(db, user) >= get_settings().max_bytes_per_user:
         raise HTTPException(

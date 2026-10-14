@@ -12,6 +12,10 @@
 !skills/pptx-builder/pptx_builder/
 !skills/pptx-builder/themes/
 !skills/pptx-builder/fonts/
+!skills/video-builder/package.json
+!skills/video-builder/package-lock.json
+!skills/video-builder/SKILL.md
+!skills/video-builder/src/
 **/__pycache__
 **/.mypy_cache
 **/.ruff_cache

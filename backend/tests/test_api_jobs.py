@@ -101,7 +101,7 @@ def test_nothing_to_plan_and_nothing_to_render(app: Any) -> None:
     assert client.post(f"/api/projects/{empty}/render").status_code == 409
     video = deck_project(client, kind="video", with_files=False)
     resp = client.post(f"/api/projects/{video}/render")
-    assert resp.status_code == 409 and "видео" in resp.json()["detail"]
+    assert resp.status_code == 409 and "сценарий" in resp.json()["detail"]
 
 
 def test_one_generation_at_a_time_per_project(app: Any) -> None:

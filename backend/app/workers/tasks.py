@@ -52,8 +52,9 @@ def plan(job_id: str) -> None:
     run_plan(uuid.UUID(job_id), get_session_factory(), OpenAICompatibleModel)
 
 
+# A video is recorded frame by frame: up to VIDEO_TIMEOUT_S (15 min) in the renderer.
 @celery_app.task(
-    name="jobs.render", queue=QUEUE_RENDER, soft_time_limit=6 * 60, time_limit=7 * 60, **DB_DOWN
+    name="jobs.render", queue=QUEUE_RENDER, soft_time_limit=17 * 60, time_limit=18 * 60, **DB_DOWN
 )
 def render(job_id: str) -> None:
     run_render(uuid.UUID(job_id), get_session_factory())

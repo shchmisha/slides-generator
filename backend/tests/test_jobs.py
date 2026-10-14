@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import uuid
 from datetime import timedelta
 from pathlib import Path
@@ -16,11 +17,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.jobs import queue
 from app.jobs.plan import run_plan
-from app.jobs.render import run_render
+from app.jobs.render import run_render, video_spec
 from app.jobs.store import JobLostError, claim, mark_failed, now, report_progress
 from app.llm.client import LLMError
 from app.models import Artifact, Job, Project, Scenario, StoredFile, User
-from app.render.skill import DeckBuild, SkillError
+from app.render.skill import DeckBuild, SkillError, VideoBuild
 from app.storage import artifact_path, logo_path, project_dir, upload_path, write_file
 
 from .api_support import FakeCounter
@@ -393,6 +394,108 @@ def test_render_failure_leaves_no_files(session_factory: Sessions, data_dir: Pat
     with session_factory() as db:
         assert db.scalars(select(Artifact)).all() == []
     assert not list((data_dir / "spool").glob("*"))
+
+
+def planned_video(sessions: Sessions) -> tuple[uuid.UUID, uuid.UUID]:
+    project_id = project_with_files(
+        sessions, kind="video", files=(("Суперсервис", "text", SOURCE.encode()),)
+    )
+    job_id = new_job(sessions, project_id)
+    run_plan(job_id, sessions, lambda: ScriptedModel(VIDEO))
+    scenario_id = job_row(sessions, job_id).scenario_id
+    assert scenario_id is not None
+    return project_id, scenario_id
+
+
+def fake_record(progress: list[float] | None = None, hook: Any = None) -> Any:
+    def record(spec: str, theme: dict[str, Any], logo: bytes | None, workdir: Path) -> VideoBuild:
+        scenes = json.loads(spec)["scenes"]
+        out = workdir / "out"
+        out.mkdir(parents=True)
+        for value in progress or []:
+            (out / "progress.json").write_text(json.dumps({"progress": value, "stage": "x"}))
+            time.sleep(0.12)
+        (out / "video.mp4").write_bytes(b"mp4 video")
+        posters = []
+        for number in range(1, len(scenes) + 1):
+            poster = out / f"scene-{number:02d}.png"
+            poster.write_bytes(b"png")
+            posters.append(poster)
+        if hook:
+            hook(out)
+        record.specs.append(json.loads(spec))  # type: ignore[attr-defined]
+        last = scenes[-1]
+        return VideoBuild(out / "video.mp4", posters, last["start"] + last["duration"], {})
+
+    record.specs = []  # type: ignore[attr-defined]
+    return record
+
+
+def test_video_spec_places_each_scene_on_the_timeline() -> None:
+    spec = video_spec(json.loads(VIDEO) | {"scenes": json.loads(VIDEO)["scenes"][:3]})
+    assert [(s["start"], s["duration"]) for s in spec["scenes"]] == [(0, 12), (12, 12), (24, 12)]
+    assert spec["title"] == "Что такое Суперсервис"
+    assert spec["scenes"][0]["visual"] == {"type": "statement"}
+
+
+def test_render_job_records_the_video_and_posters(
+    session_factory: Sessions, data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.jobs.render.PROGRESS_EVERY_S", 0.05)
+    seen: list[tuple[int, str]] = []
+    real = report_progress
+
+    def spy(db: Session, claim: Any, progress: int, stage: str) -> None:
+        seen.append((progress, stage))
+        real(db, claim, progress, stage)
+
+    monkeypatch.setattr("app.jobs.render.report_progress", spy)
+    project_id, scenario_id = planned_video(session_factory)
+    job_id = new_job(session_factory, project_id, "render", scenario_id)
+    record = fake_record(progress=[20, 60, 98])
+    run_render(job_id, session_factory, fake_build(), record)
+    job = job_row(session_factory, job_id)
+    assert job.status == "succeeded", job.error
+    assert job.report == {
+        "scenes": 6,
+        "seconds": 72.0,
+        "starts": [0, 12, 24, 36, 48, 60],
+        "warnings": [],
+        "scenario_version": 1,
+    }
+    with session_factory() as db:
+        artifacts = db.scalars(select(Artifact).order_by(Artifact.kind, Artifact.position)).all()
+    assert [(a.kind, a.position) for a in artifacts][:2] == [("mp4", 0), ("preview", 1)]
+    assert len(artifacts) == 7
+    assert artifact_path(project_id, artifacts[0].id, "mp4").read_bytes() == b"mp4 video"
+    assert record.specs[0]["scenes"][-1]["start"] == 60
+    # The script's progress, mapped into the job's range, and only ever forward.
+    percents = [p for p, _ in seen]
+    assert percents == sorted(percents) and 22 in percents and 56 in percents
+    assert (88, "кадры для предпросмотра") in seen
+    assert not list((data_dir / "spool").glob("*"))
+
+
+def test_links_left_by_the_renderer_are_not_followed(
+    session_factory: Sessions, data_dir: Path
+) -> None:
+    """A compromised renderer could leave a link to another project's file in the spool."""
+    victim = data_dir / "projects" / "someone-else.mp4"
+    victim.parent.mkdir(parents=True, exist_ok=True)
+    victim.write_bytes(b"private")
+
+    def swap(out: Path) -> None:
+        (out / "video.mp4").unlink()
+        (out / "video.mp4").symlink_to(victim)
+
+    project_id, scenario_id = planned_video(session_factory)
+    job_id = new_job(session_factory, project_id, "render", scenario_id)
+    run_render(job_id, session_factory, fake_build(), fake_record(hook=swap))
+    job = job_row(session_factory, job_id)
+    assert job.status == "failed"
+    with session_factory() as db:
+        assert db.scalars(select(Artifact)).all() == []
+    assert victim.read_bytes() == b"private"
 
 
 def test_tampered_logo_is_refused(session_factory: Sessions, data_dir: Path) -> None:

@@ -81,6 +81,10 @@ export interface Job {
     issues?: LayoutIssue[];
     warnings?: string[];
     slides?: number;
+    /** A recorded video: its scene count and length. */
+    scenes?: number;
+    seconds?: number;
+    starts?: number[];
     errors?: string[];
   };
   created_at: string;

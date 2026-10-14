@@ -240,19 +240,9 @@ onMounted(loadVersions);
           <button type="button" class="secondary" :disabled="!dirty || busy" @click="save">
             Сохранить
           </button>
-          <button
-            type="button"
-            :disabled="busy || project.kind !== 'deck' || isActive(ws.renderJob.value)"
-            :title="project.kind !== 'deck' ? 'Сборка видео появится в следующей версии' : ''"
-            @click="build"
-          >
-            {{
-              project.kind === "deck"
-                ? dirty
-                  ? "Сохранить и собрать PPTX"
-                  : "Собрать PPTX"
-                : "Собрать MP4 (скоро)"
-            }}
+          <button type="button" :disabled="busy || isActive(ws.renderJob.value)" @click="build">
+            {{ dirty ? "Сохранить и собрать" : "Собрать" }}
+            {{ project.kind === "deck" ? "PPTX" : "MP4" }}
           </button>
         </div>
       </div>

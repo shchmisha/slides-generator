@@ -20,7 +20,8 @@ docker compose up --build
 | `web` | nginx: статический Vue-интерфейс и прокси `/api` на тот же origin. Единственный опубликованный порт |
 | `api` | FastAPI: авторизация, загрузки, сценарии, задания |
 | `worker-ai` | «ИИ-модуль»: разбор файлов и обращения к LLM (очередь `ai`) |
-| `worker-render` | сборка PPTX и рендер MP4 (очередь `render`) |
+| `worker-render` | задания сборки PPTX и записи MP4 (очередь `render`): готовит сценарий, отдаёт его `renderer` и сохраняет файлы |
+| `renderer` | песочница: headless Chromium, FFmpeg и навыки `pptx-builder` / `video-builder`. Без секретов, в сети без выхода наружу |
 | `migrate` | применяет миграции Alembic и завершается до старта API |
 | `postgres` | данные, история запусков, статусы заданий |
 | `redis` | брокер очереди Celery |

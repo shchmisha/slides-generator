@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # The pptx-builder skill (Python scripts + Node layout) as installed in the render image.
     pptx_skill_dir: Path = Path("/opt/skills/pptx-builder")
     render_timeout_s: int = Field(default=300, gt=0)
+    # The video-builder skill (HyperFrames + our scene templates), in the same image. A video
+    # is recorded frame by frame: minutes, not seconds (the render task allows 17).
+    video_skill_dir: Path = Path("/opt/skills/video-builder")
+    video_timeout_s: int = Field(default=900, gt=0, le=960)
     # The renderer container (no secrets, no network but this one): set in docker compose.
     # Unset, the render worker builds files itself (development, tests).
     renderer_url: str | None = None

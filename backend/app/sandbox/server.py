@@ -4,18 +4,21 @@ network with no route outside (see docker-compose.yml).
     GET  /health
     POST /deck   {"job": "<job uuid>-<attempt>", "spec": "<deck spec JSON text>",
                   "theme": {...}, "logo": "<base64 PNG>" | null}
+    POST /video  the same body with a resolved video scenario as "spec"
 
 Files are written to SPOOL_DIR/<job>/ (a volume shared with the worker, not the data volume);
 the answer names them relative to that folder:
 
     200 {"pptx": "out/deck.pptx", "previews": ["out/slide-01.png", …], "issues": [...],
          "timings": {...}, "font_warnings": [...]}
+    200 {"video": "out/video.mp4", "posters": ["out/scene-01.png", …], "duration": 72.0,
+         "timings": {...}}     for /video; out/progress.json is updated while it records
     422 {"error": "<message for the user>"}   the render ran and failed
     400 malformed request · 404 unknown path · 503 all render slots busy
 
 Configuration comes from a few plain variables (no app.config: this container has no
-database or Redis settings to read): SPOOL_DIR, PPTX_SKILL_DIR, RENDER_TIMEOUT_S,
-RENDER_SLOTS, PORT, LOG_LEVEL.
+database or Redis settings to read): SPOOL_DIR, PPTX_SKILL_DIR, VIDEO_SKILL_DIR,
+RENDER_TIMEOUT_S, VIDEO_TIMEOUT_S, VIDEO_WORKERS, RENDER_SLOTS, PORT, LOG_LEVEL.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from app.sandbox.deck import RenderError, build_deck
+from app.sandbox.video import build_video
 
 logger = logging.getLogger("renderer")
 
@@ -46,6 +50,9 @@ class Settings:
         self.spool = Path(os.environ.get("SPOOL_DIR", "/spool"))
         self.skill_dir = Path(os.environ.get("PPTX_SKILL_DIR", "/opt/skills/pptx-builder"))
         self.timeout_s = int(os.environ.get("RENDER_TIMEOUT_S", "300"))
+        self.video_dir = Path(os.environ.get("VIDEO_SKILL_DIR", "/opt/skills/video-builder"))
+        self.video_timeout_s = int(os.environ.get("VIDEO_TIMEOUT_S", "900"))
+        self.video_workers = int(os.environ.get("VIDEO_WORKERS", "1"))
         self.slots = threading.BoundedSemaphore(int(os.environ.get("RENDER_SLOTS", "2")))
 
 
@@ -63,7 +70,9 @@ def _job_dir(spool: Path, job: object) -> Path:
     return path
 
 
-def render_deck(settings: Settings, body: dict[str, Any]) -> dict[str, Any]:
+def _inputs(
+    settings: Settings, body: dict[str, Any]
+) -> tuple[Path, str, dict[str, Any], bytes | None]:
     workdir = _job_dir(settings.spool, body.get("job"))
     spec, theme, logo = body.get("spec"), body.get("theme"), body.get("logo")
     if not isinstance(spec, str) or not isinstance(theme, dict):
@@ -72,6 +81,30 @@ def render_deck(settings: Settings, body: dict[str, Any]) -> dict[str, Any]:
         logo_bytes = base64.b64decode(logo, validate=True) if isinstance(logo, str) else None
     except binascii.Error as exc:
         raise BadRequestError("logo must be base64") from exc
+    return workdir, spec, theme, logo_bytes
+
+
+def render_video(settings: Settings, body: dict[str, Any]) -> dict[str, Any]:
+    workdir, spec, theme, logo_bytes = _inputs(settings, body)
+    result = build_video(
+        spec,
+        theme,
+        logo_bytes,
+        workdir,
+        skill_dir=settings.video_dir,
+        timeout_s=settings.video_timeout_s,
+        workers=settings.video_workers,
+    )
+    return {
+        "video": str(result.video.relative_to(workdir)),
+        "posters": [str(p.relative_to(workdir)) for p in result.posters],
+        "duration": result.duration,
+        "timings": result.timings,
+    }
+
+
+def render_deck(settings: Settings, body: dict[str, Any]) -> dict[str, Any]:
+    workdir, spec, theme, logo_bytes = _inputs(settings, body)
     result = build_deck(
         spec, theme, logo_bytes, workdir, skill_dir=settings.skill_dir, timeout_s=settings.timeout_s
     )
@@ -104,7 +137,8 @@ class Handler(BaseHTTPRequestHandler):
             self._answer(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
     def do_POST(self) -> None:
-        if self.path != "/deck":
+        route = {"/deck": render_deck, "/video": render_video}.get(self.path)
+        if route is None:
             self._answer(HTTPStatus.NOT_FOUND, {"error": "not found"})
             return
         try:
@@ -125,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
             self._answer(HTTPStatus.SERVICE_UNAVAILABLE, {"error": "busy"})
             return
         try:
-            self._answer(HTTPStatus.OK, render_deck(self.settings, body))
+            self._answer(HTTPStatus.OK, route(self.settings, body))
         except BadRequestError as exc:
             self._answer(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         except RenderError as exc:

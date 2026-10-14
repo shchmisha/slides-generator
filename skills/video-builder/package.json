@@ -1,0 +1,23 @@
+{
+  "name": "video-builder",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Skill: render a resolved video scenario to MP4 with HyperFrames, from our own scene templates",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "render": "node src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@hyperframes/producer": "0.8.139",
+    "gsap": "3.14.2"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
