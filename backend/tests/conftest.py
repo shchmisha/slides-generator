@@ -59,6 +59,7 @@ def session_factory(engine: Engine) -> sessionmaker[Session]:
 @pytest.fixture
 def data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(get_settings(), "data_dir", tmp_path)
+    monkeypatch.setattr(get_settings(), "spool_dir", tmp_path / "spool")
     return tmp_path
 
 

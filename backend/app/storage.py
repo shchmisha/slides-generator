@@ -31,24 +31,23 @@ def logo_path(project_id: uuid.UUID) -> Path:
     return project_dir(project_id) / "brand" / "logo.png"
 
 
-def scratch_dir(project_id: uuid.UUID, job_id: uuid.UUID, attempt: int) -> Path:
-    """Scratch space for one attempt of one render: inside the project folder (deleting the
-    project deletes it) and on the same volume as the artifacts (moves, not copies). Each
-    attempt has its own, so an attempt presumed dead cannot clean up a newer one's files."""
-    return project_dir(project_id) / "work" / f"{job_id}-{attempt}"
+def scratch_dir(job_id: uuid.UUID, attempt: int) -> Path:
+    """Scratch space for one attempt of one render, in the spool shared with the renderer (not
+    on the data volume: the renderer must not see other users' files). Each attempt has its
+    own, so an attempt presumed dead cannot clean up a newer one's files."""
+    return get_settings().spool_dir / f"{job_id}-{attempt}"
 
 
-def remove_scratch(project_id: uuid.UUID, job_id: uuid.UUID) -> None:
+def remove_scratch(job_id: uuid.UUID) -> None:
     """Every attempt's scratch space of a job."""
-    work = project_dir(project_id) / "work"
-    for path in work.glob(f"{job_id}-*"):
+    for path in get_settings().spool_dir.glob(f"{job_id}-*"):
         shutil.rmtree(path, ignore_errors=True)
 
 
 def scratch_dirs() -> list[tuple[uuid.UUID, Path]]:
-    """(job id, path) of every scratch dir on the volume, for the startup sweep."""
+    """(job id, path) of every scratch dir in the spool, for the startup sweep."""
     found = []
-    for path in (get_settings().data_dir / "projects").glob("*/work/*-*"):
+    for path in get_settings().spool_dir.glob("*-*"):
         try:
             found.append((uuid.UUID(path.name.rsplit("-", 1)[0]), path))
         except ValueError:

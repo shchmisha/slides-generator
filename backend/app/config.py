@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     # The pptx-builder skill (Python scripts + Node layout) as installed in the render image.
     pptx_skill_dir: Path = Path("/opt/skills/pptx-builder")
     render_timeout_s: int = Field(default=300, gt=0)
+    # The renderer container (no secrets, no network but this one): set in docker compose.
+    # Unset, the render worker builds files itself (development, tests).
+    renderer_url: str | None = None
+    # Scratch space shared with the renderer: inputs and outputs of each render attempt.
+    spool_dir: Path = Path("/spool")
 
 
 @lru_cache

@@ -11,8 +11,9 @@ x-hardening: &hardening
     - ALL
   restart: unless-stopped
 
-# The backend image is built once (by `api`) and reused by migrate and the AI worker; the render
-# worker has its own image (the same code plus Node, Chromium, fonts and the pptx skill).
+# The backend image is built once (by `api`) and reused by migrate and both workers. The
+# renderer has its own image (Node, headless Chromium, fonts, the pptx skill) and runs apart:
+# no database or Redis credentials, and a network that only reaches the render worker.
 x-backend: &backend
   <<: *hardening
   image: slides-generator/backend:local
@@ -115,10 +116,32 @@ services:
       redis:
         condition: service_healthy
 
-  # PPTX/MP4 rendering: headless Chromium is CPU- and memory-heavy, so two at a time; more
-  # would only slow each other down on a server without a GPU.
+  # Render jobs: resolve the approved scenario, ask the renderer to build the file, store it.
+  # Two at a time: headless Chromium is CPU-heavy, and more would only slow each other down on
+  # a server without a GPU.
   worker-render:
     <<: *backend
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "render", "-n", "render@%h", "-c", "2", "--loglevel=INFO"]
+    environment:
+      <<: *backend-env
+      RENDERER_URL: http://renderer:8000
+    volumes:
+      - appdata:/data
+      - spool:/spool
+    networks: [default, render]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      renderer:
+        condition: service_healthy
+
+  # Chromium runs here, and only here. Whatever a page could do, this container has nothing
+  # to steal (no credentials in its environment, no user files but the job in the spool) and
+  # nowhere to send it (its only network is `render`, which has no route out).
+  renderer:
+    <<: *hardening
     image: slides-generator/render:local
     build:
       context: .
@@ -128,12 +151,21 @@ services:
     # Reaps Chromium's helper processes; /dev/shm is where Chromium keeps rendered pages.
     init: true
     shm_size: 512m
-    command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "render", "-n", "render@%h", "-c", "2", "--loglevel=INFO"]
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RENDER_SLOTS: "2"
+    volumes:
+      - spool:/spool
+    networks: [render]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
   web:
     <<: *hardening
@@ -146,6 +178,12 @@ services:
       api:
         condition: service_healthy
 
+networks:
+  # The renderer's only network: just the render worker, no gateway to anywhere else.
+  render:
+    internal: true
+
 volumes:
   pgdata:
   appdata:
+  spool:

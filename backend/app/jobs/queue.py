@@ -91,7 +91,7 @@ def recover(db: Session, redis: Redis, *, force: bool = False) -> int:
     ).all()
     for job in dead:
         touched += 1
-        remove_scratch(job.project_id, job.id)  # files of the dead attempt
+        remove_scratch(job.id)  # files of the dead attempt
         if job.attempts >= MAX_ATTEMPTS:
             logger.error("job %s lost its worker %d times, giving up", job.id, job.attempts)
             job.status = "failed"

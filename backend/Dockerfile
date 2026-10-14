@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Built from the repository root (the render target also needs skills/pptx-builder):
-#   target `runtime` — API, migrations and the AI worker
-#   target `render`  — the render worker: runtime + Node + Chromium + fonts + the pptx skill
+#   target `runtime` — API, migrations, the AI worker and the render worker
+#   target `render`  — the renderer: Node + headless Chromium + fonts + the pptx skill. Runs
+#                      without secrets on a network with no route out (docker-compose.yml)
 
 # ---- build: resolve Python dependencies into a venv using the lockfile ----
 FROM python:3.12-slim-bookworm AS builder
@@ -18,8 +19,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.12-slim-bookworm AS runtime
 RUN groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --create-home --home-dir /home/app app \
-    && mkdir -p /data \
-    && chown app:app /data
+    && mkdir -p /data /spool \
+    && chown app:app /data /spool
 WORKDIR /app
 COPY --from=builder /app/.venv /app/.venv
 COPY backend/alembic.ini ./
@@ -39,15 +40,16 @@ COPY skills/pptx-builder/package.json skills/pptx-builder/package-lock.json ./
 # --ignore-scripts: no install hooks; Chromium comes from Debian below, not from a download.
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --ignore-scripts
 
-# ---- render worker ----
+# ---- renderer ----
 FROM runtime AS render
 USER root
-# Chromium lays the slides out. The skill lists metric-compatible fonts after each brand font
+# Headless Chromium (the headless shell: what BeginFrame capture needs) lays the slides out.
+# The skill lists metric-compatible fonts after each brand font
 # (skills/pptx-builder/fonts/substitutes.json): Liberation for Arial/Times/Courier, Gelasio
 # (Latin) and DejaVu Serif (Cyrillic, never narrower) for Georgia.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        chromium fontconfig fonts-liberation2 fonts-dejavu-core \
+        chromium-headless-shell fontconfig fonts-liberation2 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=skill-node /usr/local/bin/node /usr/local/bin/node
 COPY skills/pptx-builder/fonts/*.ttf /usr/local/share/fonts/gelasio/
@@ -60,5 +62,7 @@ COPY skills/pptx-builder/pptx_builder ${SKILL_DIR}/pptx_builder
 COPY skills/pptx-builder/themes ${SKILL_DIR}/themes
 COPY skills/pptx-builder/fonts/substitutes.json ${SKILL_DIR}/fonts/
 ENV PPTX_SKILL_DIR=${SKILL_DIR} \
-    CHROMIUM_PATH=/usr/lib/chromium/chromium
+    CHROMIUM_PATH=/usr/lib/chromium/chromium-headless-shell \
+    PRODUCER_HEADLESS_SHELL_PATH=/usr/lib/chromium/chromium-headless-shell
 USER app
+CMD ["python", "-m", "app.sandbox.server"]

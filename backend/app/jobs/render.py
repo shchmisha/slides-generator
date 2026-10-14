@@ -34,7 +34,7 @@ from app.jobs.store import (
     report_progress,
 )
 from app.models import Artifact, Job, Project, Scenario
-from app.render.skill import DeckBuild, DeckBuilder, SkillError, build_deck, font_warnings
+from app.render.skill import DeckBuild, DeckBuilder, SkillError, build_deck
 from app.storage import artifact_path, logo_path, scratch_dir
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ def run_render(
         logger.info("render job %s is not queued any more, skipping", job_id)
         return
     timings: dict[str, Any] = {}
-    scratch = scratch_dir(job.project_id, job_id, claimed.attempt)
+    scratch = scratch_dir(job_id, claimed.attempt)
     with heartbeat(sessions, claimed):
         try:
             with sessions() as db:
@@ -146,7 +146,7 @@ def _render(
         report = {
             "slides": len(result.previews),
             "issues": result.issues,
-            "warnings": font_warnings(theme),
+            "warnings": result.font_warnings,
             "scenario_version": scenario.version,
         }
         mark_succeeded(job, timings=timings, report=report)
@@ -215,7 +215,7 @@ def _store_outputs(db: Session, job: Job, project: Project, result: DeckBuild) -
             )
             target = artifact_path(project.id, artifact.id, kind)
             target.parent.mkdir(parents=True, exist_ok=True)
-            source.replace(target)
+            shutil.move(source, target)  # the spool is another volume: copy, then delete
             moved.append(target)
             db.add(artifact)
     except BaseException:

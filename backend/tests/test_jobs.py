@@ -359,7 +359,7 @@ def test_render_job_stores_the_deck_and_previews(session_factory: Sessions, data
         ("preview", 3),
     ]
     assert artifact_path(project_id, artifacts[0].id, "pptx").read_bytes() == b"PK pptx"
-    assert not list((project_dir(project_id) / "work").glob("*"))
+    assert not list((data_dir / "spool").glob("*"))
     theme, logo = build.calls[0]
     assert theme["fonts"]["body"] == "Arial" and logo is None  # default theme, no logo
 
@@ -392,7 +392,7 @@ def test_render_failure_leaves_no_files(session_factory: Sessions, data_dir: Pat
     assert job.status == "failed" and job.error == "Не удалось собрать презентацию"
     with session_factory() as db:
         assert db.scalars(select(Artifact)).all() == []
-    assert not list((project_dir(project_id) / "work").glob("*"))
+    assert not list((data_dir / "spool").glob("*"))
 
 
 def test_tampered_logo_is_refused(session_factory: Sessions, data_dir: Path) -> None:
@@ -469,13 +469,13 @@ def test_scratch_of_dead_renders_is_swept_on_startup(
         db.execute(update(Job).where(Job.id == dead).values(status="failed"))
         db.execute(update(Job).where(Job.id == alive).values(status="running", heartbeat_at=now()))
         db.commit()
-    scratch_dir(first, dead, 1).mkdir(parents=True)
-    scratch_dir(second, alive, 1).mkdir(parents=True)
+    scratch_dir(dead, 1).mkdir(parents=True)
+    scratch_dir(alive, 1).mkdir(parents=True)
     monkeypatch.setattr(tasks, "get_session_factory", lambda: session_factory)
     monkeypatch.setattr(tasks, "get_redis", lambda: FakeCounter())
     tasks._recover_jobs()
-    assert not scratch_dir(first, dead, 1).exists()
-    assert scratch_dir(second, alive, 1).exists()
+    assert not scratch_dir(dead, 1).exists()
+    assert scratch_dir(alive, 1).exists()
 
 
 def test_only_the_last_renders_keep_their_files(session_factory: Sessions, data_dir: Path) -> None:

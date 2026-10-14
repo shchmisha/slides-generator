@@ -18,8 +18,8 @@ from app.brand import DEFAULT_THEME
 from app.config import get_settings
 from app.facts.build import build_facts
 from app.ingest.extract import extract_file
-from app.render import skill
 from app.render.skill import SkillError, build_deck
+from app.sandbox import deck as sandbox_deck
 
 from .fakes import ScriptedModel
 
@@ -91,7 +91,7 @@ def test_the_skill_gets_no_secrets_and_is_bounded(
         seen.update(cmd=cmd, env=env, timeout=timeout)
         return 1, "boom"
 
-    monkeypatch.setattr(skill, "_run_group", fake_run)
+    monkeypatch.setattr(sandbox_deck, "run_group", fake_run)
     with pytest.raises(SkillError, match="Не удалось собрать"):
         build_deck("{}", DEFAULT_THEME, None, tmp_path / "job")
     env = seen["env"]
@@ -107,10 +107,11 @@ def test_the_skill_gets_no_secrets_and_is_bounded(
 def test_font_warnings_follow_the_skills_substitutes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(get_settings(), "pptx_skill_dir", SKILL_DIR)
     installed = frozenset({"liberation sans", "gelasio", "dejavu serif"})
-    monkeypatch.setattr(skill, "installed_fonts", lambda: installed)
-    assert skill.font_warnings({"fonts": {"heading": "Georgia", "body": "Arial"}}) == []
-    warned = skill.font_warnings({"fonts": {"heading": "PT Sans", "body": "Arial"}})
+    monkeypatch.setattr(sandbox_deck, "installed_fonts", lambda: installed)
+    warnings = sandbox_deck.font_warnings
+    assert warnings({"fonts": {"heading": "Georgia", "body": "Arial"}}, SKILL_DIR) == []
+    warned = warnings({"fonts": {"heading": "PT Sans", "body": "Arial"}}, SKILL_DIR)
     assert len(warned) == 1 and "PT Sans" in warned[0]
     # Without the Cyrillic stand-in, Georgia is no longer measured safely.
-    monkeypatch.setattr(skill, "installed_fonts", lambda: frozenset({"gelasio"}))
-    assert skill.font_warnings({"fonts": {"heading": "Georgia", "body": "Georgia"}})
+    monkeypatch.setattr(sandbox_deck, "installed_fonts", lambda: frozenset({"gelasio"}))
+    assert warnings({"fonts": {"heading": "Georgia", "body": "Georgia"}}, SKILL_DIR)
