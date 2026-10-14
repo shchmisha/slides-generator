@@ -40,13 +40,15 @@ class KeyIn(BaseModel):
 
 
 class VoiceChoiceIn(BaseModel):
-    voice_id: VoiceId
+    voice_id: VoiceId | None = None
+    sounds: bool | None = None
 
 
 class VoiceOut(BaseModel):
     enabled: bool
     voice_id: str | None = None
     voice_name: str | None = None
+    sounds: bool = True
     updated_at: datetime | None = None
     model: str
 
@@ -65,6 +67,7 @@ def _out(row: VoiceSettings | None) -> VoiceOut:
         enabled=True,
         voice_id=row.voice_id,
         voice_name=row.voice_name,
+        sounds=row.sounds,
         updated_at=row.updated_at,
         model=model,
     )
@@ -132,13 +135,16 @@ def set_key(body: KeyIn, db: DB, user: CurrentUser, redis: RedisDep) -> VoiceOut
 
 
 @router.patch("")
-def choose_voice(body: VoiceChoiceIn, db: DB, user: CurrentUser, redis: RedisDep) -> VoiceOut:
-    rate_limit.check(redis, rate_limit.VOICE_PER_USER, str(user.id))
+def update_voice(body: VoiceChoiceIn, db: DB, user: CurrentUser, redis: RedisDep) -> VoiceOut:
     row, key = _stored_key(db, user)
-    voice = next((v for v in _voices(key) if v.id == body.voice_id), None)
-    if voice is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Такого голоса нет")
-    row.voice_id, row.voice_name = voice.id, voice.name
+    if body.voice_id is not None:
+        rate_limit.check(redis, rate_limit.VOICE_PER_USER, str(user.id))
+        voice = next((v for v in _voices(key) if v.id == body.voice_id), None)
+        if voice is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Такого голоса нет")
+        row.voice_id, row.voice_name = voice.id, voice.name
+    if body.sounds is not None:
+        row.sounds = body.sounds
     row.updated_at = now()
     db.commit()
     return _out(row)

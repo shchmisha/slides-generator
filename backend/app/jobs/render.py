@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker, undefer
 
 from app.agent.review import DeckBasis, Review, VideoBasis, review
 from app.brand import DEFAULT_THEME
+from app.config import get_settings
 from app.jobs.store import (
     Claim,
     JobLostError,
@@ -37,7 +38,7 @@ from app.jobs.store import (
     mark_succeeded,
     report_progress,
 )
-from app.models import Artifact, Job, Project, Scenario
+from app.models import Artifact, Job, Project, Scenario, VoiceSettings
 from app.render.skill import (
     DeckBuilder,
     SkillError,
@@ -46,7 +47,10 @@ from app.render.skill import (
     build_deck,
     build_video,
 )
+from app.security.vault import VaultError, unseal
 from app.storage import artifact_path, logo_path, read_spool_file, scratch_dir, take_from_spool
+from app.voice.elevenlabs import VoiceError
+from app.voice.narration import LEAD_S, Narration, fit_timeline, narrate
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +224,90 @@ def video_spec(content: dict[str, Any]) -> dict[str, Any]:
     return {"title": content["title"], "scenes": scenes}
 
 
+def voiced(
+    timeline: dict[str, Any], narration: Narration, max_seconds: float
+) -> tuple[dict[str, Any], str | None]:
+    """The timeline with a voice clip in each scene, scene lengths fitted to the voice, and the
+    sounds; plus a warning if the voice made the video longer than allowed."""
+    planned = [float(scene["duration"]) for scene in timeline["scenes"]]
+    spoken = [clip.duration for clip in narration.clips]
+    lengths, warning = fit_timeline(planned, spoken, max_seconds)
+    scenes, start = [], 0.0
+    for scene, length, clip in zip(timeline["scenes"], lengths, narration.clips, strict=True):
+        voice: dict[str, Any] = {"file": clip.file, "offset": LEAD_S, "duration": clip.duration}
+        if clip.alignment is not None:
+            voice["alignment"] = {
+                "chars": clip.alignment.chars,
+                "starts": clip.alignment.starts,
+                "ends": clip.alignment.ends,
+            }
+        scenes.append(scene | {"start": start, "duration": length, "voice": voice})
+        start = round(start + length, 3)
+    result = timeline | {"scenes": scenes}
+    if narration.sounds:
+        result["sounds"] = {
+            name.removesuffix(".mp3"): {"file": name, "seconds": seconds}
+            for name, (_, seconds) in narration.sounds.items()
+        }
+    return result, warning
+
+
+def _voice_of(db: Session, project: Project) -> tuple[VoiceSettings, str] | None:
+    """The owner's voice settings and decrypted key, or None for a silent video."""
+    row = db.get(VoiceSettings, project.user_id)
+    if row is None:
+        return None
+    try:
+        return row, unseal(project.user_id, row.api_key)
+    except VaultError:
+        raise _JobError(
+            "Сохранённый ключ ElevenLabs не читается: добавьте его заново в настройках "
+            "или удалите, чтобы собрать ролик без звука"
+        ) from None
+
+
+def _narrate(
+    db: Session,
+    claimed: Claim,
+    project: Project,
+    voice: tuple[VoiceSettings, str],
+    timeline: dict[str, Any],
+    max_seconds: float,
+) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any], list[str]]:
+    """(voiced timeline, audio files, report of the voice, warnings)."""
+    row, key = voice
+    texts = [str(scene["narration"]) for scene in timeline["scenes"]]
+
+    def on_clip(done: int, total: int) -> None:
+        report_progress(db, claimed, 5 + round(15 * done / total), "озвучка")
+
+    report_progress(db, claimed, 5, "озвучка")
+    try:
+        narration = narrate(
+            key,
+            row.voice_id,
+            texts,
+            project_id=project.id,
+            user_id=project.user_id,
+            with_sounds=row.sounds,
+            on_clip=on_clip,
+        )
+    except VoiceError as exc:
+        raise _JobError(f"Озвучка не удалась: {exc}") from None
+    timeline, warning = voiced(timeline, narration, max_seconds)
+    audio = {clip.file: clip.audio for clip in narration.clips}
+    audio |= {name: data for name, (data, _) in narration.sounds.items()}
+    report = {
+        "name": row.voice_name,
+        "model": get_settings().voice_model,
+        "clips": len(narration.clips),
+        "new_clips": narration.synthesized,
+        "characters": narration.characters,
+        "sounds": bool(narration.sounds),
+    }
+    return timeline, audio, report, narration.warnings + ([warning] if warning else [])
+
+
 def _video(
     db: Session,
     claimed: Claim,
@@ -230,16 +318,32 @@ def _video(
     timings: dict[str, Any],
 ) -> tuple[list[Output], dict[str, Any]]:
     t = perf_counter()
-    checked = _checked(scenario, VideoBasis.model_validate(scenario.basis))
+    basis = VideoBasis.model_validate(scenario.basis)
+    checked = _checked(scenario, basis)
     timeline = video_spec(checked.content or scenario.content)
-    spec = json.dumps(timeline, ensure_ascii=False)
+    warnings = list(checked.report.get("warnings", []))
     theme = project.brand or DEFAULT_THEME
     logo = _logo(project)
+    voice = _voice_of(db, project)
     timings["prepare_ms"] = _ms(t)
 
-    report_progress(db, claimed, 5, "запись видео")
+    audio: dict[str, bytes] = {}
+    voice_report: dict[str, Any] | None = None
+    if voice is not None:
+        t = perf_counter()
+        timeline, audio, voice_report, more = _narrate(
+            db, claimed, project, voice, timeline, basis.settings.max_seconds
+        )
+        warnings += more
+        timings["voice_ms"] = _ms(t)
+    spec = json.dumps(timeline, ensure_ascii=False)
+
+    first = 20 if voice is not None else 5
+    report_progress(db, claimed, first, "запись видео")
     t = perf_counter()
-    result = _while_recording(db, claimed, scratch, lambda: record(spec, theme, logo, scratch))
+    result = _while_recording(
+        db, claimed, scratch, lambda: record(spec, theme, logo, scratch, audio), first
+    )
     timings["render_ms"] = _ms(t)
     timings |= {key: round(value) for key, value in result.timings.items()}
     outputs: list[Output] = [("mp4", 0, result.video)]
@@ -248,26 +352,28 @@ def _video(
         "scenes": len(result.posters),
         "seconds": round(result.duration, 1),
         "starts": [scene["start"] for scene in timeline["scenes"]],  # the player jumps to scenes
-        "warnings": list(checked.report.get("warnings", [])),
+        "audio": result.audio,
+        "voice": voice_report,
+        "warnings": warnings,
     }
     return outputs, report
 
 
 def _while_recording(
-    db: Session, claimed: Claim, scratch: Path, work: Callable[[], VideoBuild]
+    db: Session, claimed: Claim, scratch: Path, work: Callable[[], VideoBuild], first: int
 ) -> VideoBuild:
     """Record in a thread and pass the script's own progress (out/progress.json in the spool)
-    on to the job as 5–90 %. Only the number is used: the renderer is not trusted with text
-    that the user sees."""
+    on to the job as first–90 %. Only the number is used: the renderer is not trusted with
+    text that the user sees."""
     pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="record")
     try:
         future = pool.submit(work)
-        shown = 5
+        shown = first
         while not wait([future], timeout=PROGRESS_EVERY_S).done:
             value = _recording_progress(scratch)
             if value is None:
                 continue
-            percent = 5 + round(value * 0.85)
+            percent = first + round(value * (90 - first) / 100)
             if percent > shown:
                 shown = percent
                 stage = "запись видео" if value < 97 else "кадры для предпросмотра"

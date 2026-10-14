@@ -109,6 +109,15 @@ const ISSUE_TEXT: Record<string, string> = {
           <template v-if="isVideo && latest.job.report.seconds">
             · длина {{ latest.job.report.seconds.toLocaleString("ru-RU") }} с
           </template>
+          <template v-if="isVideo && latest.job.report.voice">
+            · голос {{ latest.job.report.voice.name
+            }}{{ latest.job.report.voice.sounds ? ", музыка" : "" }} ({{
+              latest.job.report.voice.new_clips
+                ? `озвучено ${latest.job.report.voice.characters.toLocaleString("ru-RU")} симв.`
+                : "озвучка из прошлой сборки"
+            }})
+          </template>
+          <template v-else-if="isVideo && latest.job.report.audio === false"> · без звука</template>
         </p>
       </div>
       <a v-if="latest.file" :href="latest.file.url" class="button" download>

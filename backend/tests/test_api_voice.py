@@ -30,6 +30,7 @@ def test_without_a_key_voice_is_off(app: Any) -> None:
         "enabled": False,
         "voice_id": None,
         "voice_name": None,
+        "sounds": True,
         "updated_at": None,
         "model": "eleven_v4",
     }
@@ -78,6 +79,8 @@ def test_voice_can_be_chosen_from_the_accounts_voices(app: Any, eleven: FakeElev
     assert resp.status_code == 200 and resp.json()["voice_name"] == "Sarah"
     assert client.patch("/api/voice", json={"voice_id": "nope123"}).status_code == 422
     assert client.patch("/api/voice", json={"voice_id": "../x"}).status_code == 422
+    resp = client.patch("/api/voice", json={"sounds": False})
+    assert resp.json()["sounds"] is False and resp.json()["voice_name"] == "Sarah"
     # Replacing the key keeps the chosen voice.
     assert client.put("/api/voice", json={"api_key": KEY}).json()["voice_name"] == "Sarah"
 

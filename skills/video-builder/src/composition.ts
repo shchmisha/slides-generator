@@ -9,7 +9,7 @@
 
 import { palette, type Palette } from "./style.ts";
 import { captions, escapeHtml, typography } from "./text.ts";
-import type { Scene, Theme, VideoSpec } from "./types.ts";
+import type { Scene, Sound, Theme, VideoSpec } from "./types.ts";
 
 export const WIDTH = 1920;
 export const HEIGHT = 1080;
@@ -149,9 +149,50 @@ html, body { margin: 0; background: ${p.background}; }
 `;
 }
 
+/** Audio files the composition may use: a fixed shape, so a name can never leave the folder. */
+export const AUDIO_FILE = /^(voice-\d{2}|bed|transition)\.mp3$/;
+
+// Levels under the voice (1.0): the bed is felt rather than heard, transitions are a soft cue.
+const BED_VOLUME = 0.1;
+const TRANSITION_VOLUME = 0.3;
+
+function audioTag(id: string, file: string, start: number, duration: number, volume: number, fades = ""): string {
+  if (!AUDIO_FILE.test(file)) throw new Error(`unexpected audio file name: ${file}`);
+  return `<audio id="${id}" src="assets/audio/${file}" data-start="${sec(start)}" data-duration="${sec(duration)}" data-volume="${volume}"${fades}></audio>`;
+}
+
+/** The voice of each scene, a cue at each scene change, and the bed looped under everything. */
+export function audioClips(spec: VideoSpec, total: number): string[] {
+  const tags: string[] = [];
+  spec.scenes.forEach((scene, i) => {
+    if (scene.voice) {
+      tags.push(audioTag(`voice${i}`, scene.voice.file, scene.start + scene.voice.offset, scene.voice.duration, 1));
+    }
+  });
+  const transition: Sound | undefined = spec.sounds?.transition;
+  if (transition) {
+    spec.scenes.slice(1).forEach((scene, i) => {
+      const at = Math.max(0, scene.start - 0.2);
+      tags.push(audioTag(`cue${i + 1}`, transition.file, at, Math.min(transition.seconds, total - at), TRANSITION_VOLUME));
+    });
+  }
+  const bed: Sound | undefined = spec.sounds?.bed;
+  if (bed && bed.seconds >= 2) {
+    for (let at = 0, k = 0; at < total - 0.05; at += bed.seconds, k += 1) {
+      const length = Math.min(bed.seconds, total - at);
+      const first = at === 0;
+      const last = at + bed.seconds >= total - 0.05;
+      const fades = `${first ? ' data-fade-in="1.5"' : ""}${last ? ` data-fade-out="${Math.min(2.5, length)}"` : ""}`;
+      tags.push(audioTag(`bed${k}`, bed.file, at, length, BED_VOLUME, fades));
+    }
+  }
+  return tags;
+}
+
 export interface Composition {
   html: string;
   duration: number;
+  audioFiles: string[];
 }
 
 export function buildComposition(spec: VideoSpec, theme: Theme, hasLogo: boolean): Composition {
@@ -166,7 +207,8 @@ export function buildComposition(spec: VideoSpec, theme: Theme, hasLogo: boolean
         `<section id="s${i}" class="clip scene" data-start="${sec(scene.start)}" data-duration="${sec(scene.duration)}" data-track-index="0">${sceneBody(scene)}</section>`,
     )
     .join("\n");
-  const allCaptions = spec.scenes.flatMap((scene) => captions(scene.narration, scene.start, scene.duration));
+  const allCaptions = spec.scenes.flatMap((scene) => captions(scene.narration, scene.start, scene.duration, scene.voice));
+  const audio = audioClips(spec, duration);
   const captionClips = allCaptions
     .map(
       (c, i) =>
@@ -202,6 +244,7 @@ ${hasLogo ? '<img class="logo" src="assets/logo.png" alt="">' : ""}
 <div class="progress"><div class="progress-fill"></div></div>
 ${scenes}
 ${captionClips}
+${audio.join("\n")}
 </div>
 <script>
 window.__timelines = window.__timelines || {};
@@ -212,5 +255,10 @@ window.__timelines["root"] = tl;
 </body>
 </html>
 `;
-  return { html, duration };
+  const audioFiles = [
+    ...spec.scenes.flatMap((scene) => (scene.voice ? [scene.voice.file] : [])),
+    ...(spec.sounds?.transition && spec.scenes.length > 1 ? [spec.sounds.transition.file] : []),
+    ...(spec.sounds?.bed ? [spec.sounds.bed.file] : []),
+  ];
+  return { html, duration, audioFiles: [...new Set(audioFiles)] };
 }

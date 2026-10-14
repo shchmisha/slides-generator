@@ -57,8 +57,21 @@ async function chooseVoice(event: Event): Promise<void> {
   busy.value = true;
   error.value = notice.value = null;
   try {
-    setVoice(await voice.choose(id));
+    setVoice(await voice.update({ voice_id: id }));
     notice.value = "Голос выбран";
+  } catch (err) {
+    error.value = errorText(err);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function toggleSounds(event: Event): Promise<void> {
+  const sounds = (event.target as HTMLInputElement).checked;
+  busy.value = true;
+  error.value = notice.value = null;
+  try {
+    setVoice(await voice.update({ sounds }));
   } catch (err) {
     error.value = errorText(err);
   } finally {
@@ -124,6 +137,15 @@ async function removeKey(): Promise<void> {
       <p v-if="voicesError" class="small alert-bad">
         Список голосов не загрузился: {{ voicesError }}
       </p>
+      <label class="check">
+        <input
+          type="checkbox"
+          :checked="voiceStatus.sounds"
+          :disabled="busy"
+          @change="toggleSounds"
+        />
+        Фоновая музыка и звуки переходов (создаются один раз через ElevenLabs Sound Effects)
+      </label>
     </div>
 
     <form class="stack" @submit.prevent="saveKey">
@@ -160,5 +182,16 @@ async function removeKey(): Promise<void> {
 <style scoped>
 .voice {
   max-width: 720px;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+.check input {
+  width: auto;
 }
 </style>

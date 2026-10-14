@@ -14,6 +14,7 @@ import {
   type VideoSettings,
 } from "../api/types";
 import { provideEditing } from "../composables/editing";
+import { loadVoice, voiceStatus } from "../composables/voice";
 import { useWorkspace } from "../composables/workspace";
 import { when } from "../lib/format";
 import { clone, humanize } from "../lib/scenario";
@@ -143,7 +144,11 @@ async function replan(): Promise<void> {
   }
 }
 
-onMounted(loadVersions);
+onMounted(() => {
+  void loadVersions();
+  // The build button says whether the video will have a voice; not knowing is fine.
+  if (project.value.kind === "video") void loadVoice().catch(() => undefined);
+});
 </script>
 
 <template>
@@ -246,6 +251,17 @@ onMounted(loadVersions);
           </button>
         </div>
       </div>
+      <p v-if="project.kind === 'video' && voiceStatus" class="muted small voice-line">
+        <template v-if="voiceStatus.enabled">
+          Озвучка: голос {{ voiceStatus.voice_name }} (ElevenLabs){{
+            voiceStatus.sounds ? ", фоновая музыка и звуки переходов" : ""
+          }}.
+        </template>
+        <template v-else>Ролик будет без звука, с субтитрами.</template>
+        <RouterLink to="/settings">{{
+          voiceStatus.enabled ? "Изменить" : "Добавить ключ ElevenLabs"
+        }}</RouterLink>
+      </p>
       <p v-if="planFailed" class="alert alert-warn small">
         Последняя попытка составить сценарий не удалась: {{ ws.planJob.value?.error }}. Показана
         предыдущая версия.

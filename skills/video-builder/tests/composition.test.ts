@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { buildComposition, sceneBody, settledAt } from "../src/composition.ts";
+import { audioClips, buildComposition, sceneBody, settledAt } from "../src/composition.ts";
 import { contrast, palette } from "../src/style.ts";
 import { captions, escapeHtml } from "../src/text.ts";
 import type { Scene, Theme, VideoSpec } from "../src/types.ts";
@@ -116,4 +116,70 @@ test("the progress line steps at each scene instead of moving every frame", () =
   const { html } = buildComposition(SPEC, THEME, false);
   assert.equal((html.match(/tl\.to\("\.progress-fill"/g) ?? []).length, 7);
   assert.ok(!html.includes(`duration: 72, ease: "none"`));
+});
+
+
+/** Timing like ElevenLabs returns: every character of the text, spaces included. */
+function alignment(text: string, perChar = 0.06) {
+  const chars = [...text];
+  return {
+    chars,
+    starts: chars.map((_, i) => Math.round(i * perChar * 1000) / 1000),
+    ends: chars.map((_, i) => Math.round((i + 1) * perChar * 1000) / 1000),
+  };
+}
+
+test("a voiced scene gets its clip, and captions follow the spoken words", () => {
+  const narration = "Первая фраза короткая. Вторая фраза идёт следом.";
+  const voiced: Scene = {
+    ...scene(10, 8, { type: "statement", heading: "Тезис" }, narration),
+    voice: { file: "voice-02.mp3", offset: 0.35, duration: 2.9, alignment: alignment(narration) },
+  };
+  const subs = captions(voiced.narration, voiced.start, voiced.duration, voiced.voice);
+  assert.deepEqual(subs.map((c) => c.text), ["Первая фраза короткая.", "Вторая фраза идёт следом."]);
+  // The second sentence starts at character 23: 23 * 0.06 = 1.38 s into the clip, shown 0.1 s early.
+  assert.equal(subs[1]!.start, Math.round((10 + 0.35 + 1.38 - 0.1) * 1000) / 1000);
+  assert.equal(Math.round((subs[0]!.start + subs[0]!.duration) * 1000) / 1000, subs[1]!.start); // no gap
+  const clips = audioClips({ title: "x", scenes: [voiced] }, 18);
+  assert.deepEqual(clips, [
+    '<audio id="voice0" src="assets/audio/voice-02.mp3" data-start="10.35" data-duration="2.9" data-volume="1"></audio>',
+  ]);
+});
+
+test("timing that does not match the text falls back to the clip's length", () => {
+  const voiced: Scene = {
+    ...scene(0, 6, { type: "statement" }, "Одна фраза. Другая фраза."),
+    voice: { file: "voice-01.mp3", offset: 0.5, duration: 4, alignment: alignment("совсем другой текст") },
+  };
+  const subs = captions(voiced.narration, voiced.start, voiced.duration, voiced.voice);
+  assert.equal(subs[0]!.start, 0.5);
+  assert.equal(Math.round((subs[1]!.start + subs[1]!.duration) * 1000) / 1000, 4.5);
+});
+
+test("the bed loops under the whole video and a cue marks each scene change", () => {
+  const spec: VideoSpec = {
+    ...SPEC,
+    sounds: { bed: { file: "bed.mp3", seconds: 20 }, transition: { file: "transition.mp3", seconds: 1 } },
+  };
+  const total = 72;
+  const clips = audioClips(spec, total);
+  const beds = clips.filter((c) => c.includes("bed.mp3"));
+  assert.equal(beds.length, 4); // 0, 20, 40, 60
+  assert.match(beds[0]!, /data-fade-in="1.5"/);
+  assert.match(beds[3]!, /data-start="60" data-duration="12".*data-fade-out="2.5"/);
+  assert.equal(clips.filter((c) => c.includes("transition.mp3")).length, SPEC.scenes.length - 1);
+  const { html, audioFiles } = buildComposition(spec, THEME, false);
+  assert.deepEqual(audioFiles.sort(), ["bed.mp3", "transition.mp3"]);
+  assert.match(html, /<audio id="bed0" src="assets\/audio\/bed.mp3"/);
+});
+
+test("audio file names outside the fixed set are refused", () => {
+  const bad: Scene = {
+    ...scene(0, 6, { type: "statement" }),
+    voice: { file: "../../etc/passwd", offset: 0.3, duration: 2 },
+  };
+  assert.throws(() => audioClips({ title: "x", scenes: [bad] }, 6), /unexpected audio file name/);
+  const silent = buildComposition(SPEC, THEME, false);
+  assert.deepEqual(silent.audioFiles, []);
+  assert.doesNotMatch(silent.html, /<audio/);
 });

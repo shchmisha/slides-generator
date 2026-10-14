@@ -141,15 +141,35 @@ def test_video_is_recorded_in_the_renderer(
         out.mkdir(parents=True)
         (out / "video.mp4").write_bytes(b"mp4")
         (out / "scene-01.png").write_bytes(b"png")
-        record.seen = (spec, logo, kw["timeout_s"])  # type: ignore[attr-defined]
-        return VideoBuild(out / "video.mp4", [out / "scene-01.png"], 12.5, {"record_ms": 9.0})
+        record.seen = (spec, logo, kw["timeout_s"], kw["audio"])  # type: ignore[attr-defined]
+        return VideoBuild(
+            out / "video.mp4", [out / "scene-01.png"], 12.5, {"record_ms": 9.0}, audio=True
+        )
 
     monkeypatch.setattr(server, "build_video", record)
     workdir = job_dir(spool)
-    result = build_video('{"scenes": []}', {}, None, workdir)
+    voice = {"voice-01.mp3": b"ID3 voice", "bed.mp3": b"\xff\xfb bed"}
+    result = build_video('{"scenes": []}', {}, None, workdir, voice)
     assert result.video == workdir / "out" / "video.mp4" and result.duration == 12.5
-    assert [p.name for p in result.posters] == ["scene-01.png"]
-    assert record.seen == ('{"scenes": []}', None, 900)
+    assert [p.name for p in result.posters] == ["scene-01.png"] and result.audio
+    assert record.seen == ('{"scenes": []}', None, 900, voice)
+
+
+@pytest.mark.parametrize(
+    "audio",
+    [
+        {"../voice-01.mp3": b"ID3"},  # a name outside the fixed set
+        {"voice-01.mp3": b"<html>"},  # not an MP3
+        {"voice-01.mp3": b"ID3" + b"0" * (4 * 1024 * 1024)},  # too big
+    ],
+)
+def test_audio_the_renderer_would_not_trust_is_refused(
+    renderer: tuple[server.Settings, Path], monkeypatch: pytest.MonkeyPatch, audio: dict[str, bytes]
+) -> None:
+    _, spool = renderer
+    monkeypatch.setattr(server, "build_video", lambda *a, **kw: pytest.fail("must not record"))
+    with pytest.raises(SkillError, match="Звуковой файл не подходит"):
+        build_video("{}", {}, None, job_dir(spool), audio)
 
 
 def test_unexpected_video_names_are_not_trusted(
@@ -159,4 +179,4 @@ def test_unexpected_video_names_are_not_trusted(
     answer = {"video": "out/video.mp4", "posters": ["../x/scene-01.png"], "duration": 1}
     monkeypatch.setattr(server, "render_video", lambda settings, body: answer)
     with pytest.raises(SkillError, match="Не удалось записать видео"):
-        build_video("{}", {}, None, job_dir(spool))
+        build_video("{}", {}, None, job_dir(spool), {})

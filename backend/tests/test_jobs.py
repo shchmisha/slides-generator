@@ -408,8 +408,11 @@ def planned_video(sessions: Sessions) -> tuple[uuid.UUID, uuid.UUID]:
 
 
 def fake_record(progress: list[float] | None = None, hook: Any = None) -> Any:
-    def record(spec: str, theme: dict[str, Any], logo: bytes | None, workdir: Path) -> VideoBuild:
+    def record(
+        spec: str, theme: dict[str, Any], logo: bytes | None, workdir: Path, audio: dict[str, bytes]
+    ) -> VideoBuild:
         scenes = json.loads(spec)["scenes"]
+        record.audio.append(audio)  # type: ignore[attr-defined]
         out = workdir / "out"
         out.mkdir(parents=True)
         for value in progress or []:
@@ -425,9 +428,11 @@ def fake_record(progress: list[float] | None = None, hook: Any = None) -> Any:
             hook(out)
         record.specs.append(json.loads(spec))  # type: ignore[attr-defined]
         last = scenes[-1]
-        return VideoBuild(out / "video.mp4", posters, last["start"] + last["duration"], {})
+        total = last["start"] + last["duration"]
+        return VideoBuild(out / "video.mp4", posters, total, {}, audio=bool(audio))
 
     record.specs = []  # type: ignore[attr-defined]
+    record.audio = []  # type: ignore[attr-defined]
     return record
 
 
@@ -460,9 +465,12 @@ def test_render_job_records_the_video_and_posters(
         "scenes": 6,
         "seconds": 72.0,
         "starts": [0, 12, 24, 36, 48, 60],
+        "audio": False,
+        "voice": None,
         "warnings": [],
         "scenario_version": 1,
     }
+    assert record.audio == [{}]  # no key: a silent video
     with session_factory() as db:
         artifacts = db.scalars(select(Artifact).order_by(Artifact.kind, Artifact.position)).all()
     assert [(a.kind, a.position) for a in artifacts][:2] == [("mp4", 0), ("preview", 1)]

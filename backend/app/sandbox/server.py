@@ -4,7 +4,8 @@ network with no route outside (see docker-compose.yml).
     GET  /health
     POST /deck   {"job": "<job uuid>-<attempt>", "spec": "<deck spec JSON text>",
                   "theme": {...}, "logo": "<base64 PNG>" | null}
-    POST /video  the same body with a resolved video scenario as "spec"
+    POST /video  the same body with a resolved video scenario as "spec", plus
+                 "audio": {"voice-01.mp3": "<base64 MP3>", "bed.mp3": …} (may be empty)
 
 Files are written to SPOOL_DIR/<job>/ (a volume shared with the worker, not the data volume);
 the answer names them relative to that folder:
@@ -37,12 +38,13 @@ from pathlib import Path
 from typing import Any
 
 from app.sandbox.deck import RenderError, build_deck
-from app.sandbox.video import build_video
+from app.sandbox.video import build_video, check_audio
 
 logger = logging.getLogger("renderer")
 
 JOB_NAME = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-\d{1,3}$")
-MAX_BODY_BYTES = 8 * 1024 * 1024  # a spec is ~100 KB; a logo at most 2 MB, base64 ~2.7 MB
+# A spec is ~100 KB, a logo at most 2 MB, a video's audio at most 12 MB: base64 adds a third.
+MAX_BODY_BYTES = 20 * 1024 * 1024
 
 
 class Settings:
@@ -84,7 +86,20 @@ def _inputs(
     return workdir, spec, theme, logo_bytes
 
 
+def _audio(body: dict[str, Any]) -> dict[str, bytes]:
+    raw = body.get("audio") or {}
+    if not isinstance(raw, dict) or not all(isinstance(v, str) for v in raw.values()):
+        raise BadRequestError("audio must map file names to base64")
+    try:
+        audio = {str(k): base64.b64decode(v, validate=True) for k, v in raw.items()}
+    except binascii.Error as exc:
+        raise BadRequestError("audio must be base64") from exc
+    check_audio(audio)  # RenderError (422) with a message for the user
+    return audio
+
+
 def render_video(settings: Settings, body: dict[str, Any]) -> dict[str, Any]:
+    audio = _audio(body)
     workdir, spec, theme, logo_bytes = _inputs(settings, body)
     result = build_video(
         spec,
@@ -94,12 +109,14 @@ def render_video(settings: Settings, body: dict[str, Any]) -> dict[str, Any]:
         skill_dir=settings.video_dir,
         timeout_s=settings.video_timeout_s,
         workers=settings.video_workers,
+        audio=audio,
     )
     return {
         "video": str(result.video.relative_to(workdir)),
         "posters": [str(p.relative_to(workdir)) for p in result.posters],
         "duration": result.duration,
         "timings": result.timings,
+        "audio": result.audio,
     }
 
 

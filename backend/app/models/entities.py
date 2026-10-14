@@ -13,6 +13,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -68,6 +69,8 @@ class VoiceSettings(Base):
     api_key: Mapped[bytes] = mapped_column(LargeBinary)
     voice_id: Mapped[str] = mapped_column(String(64))
     voice_name: Mapped[str] = mapped_column(String(100))
+    # Background bed and transition cues under the voice.
+    sounds: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = _now()
 

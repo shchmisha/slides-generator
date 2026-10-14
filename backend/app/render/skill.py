@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 SkillError = RenderError
 DeckBuilder = Callable[[str, dict[str, Any], bytes | None, Path], DeckBuild]
-VideoBuilder = Callable[[str, dict[str, Any], bytes | None, Path], VideoBuild]
+VideoBuilder = Callable[[str, dict[str, Any], bytes | None, Path, dict[str, bytes]], VideoBuild]
 
 __all__ = [
     "DeckBuild",
@@ -61,9 +61,14 @@ def build_deck(
 
 
 def build_video(
-    spec_json: str, theme: dict[str, Any], logo: bytes | None, workdir: Path
+    spec_json: str,
+    theme: dict[str, Any],
+    logo: bytes | None,
+    workdir: Path,
+    audio: dict[str, bytes],
 ) -> VideoBuild:
-    """Like build_deck, for a resolved video scenario; blocks for the whole recording."""
+    """Like build_deck, for a resolved video scenario and its voice clips and sounds (none for
+    a silent video); blocks for the whole recording."""
     settings = get_settings()
     if not settings.renderer_url:
         return record_here(
@@ -73,9 +78,14 @@ def build_video(
             workdir,
             skill_dir=settings.video_skill_dir,
             timeout_s=settings.video_timeout_s,
+            audio=audio,
         )
     url = f"{settings.renderer_url.rstrip('/')}/video"
-    answer = _post(url, _payload(spec_json, theme, logo, workdir), settings.video_timeout_s)
+    payload = _payload(spec_json, theme, logo, workdir)
+    payload["audio"] = {
+        name: base64.b64encode(data).decode("ascii") for name, data in audio.items()
+    }
+    answer = _post(url, payload, settings.video_timeout_s)
     return _video_from(answer, workdir)
 
 
@@ -153,6 +163,7 @@ def _video_from(answer: dict[str, Any], workdir: Path) -> VideoBuild:
             posters=[workdir / p for p in posters],
             duration=float(answer["duration"]),
             timings={k: float(v) for k, v in dict(answer.get("timings", {})).items()},
+            audio=answer.get("audio") is True,
         )
     except (KeyError, TypeError, ValueError) as exc:
         logger.error("renderer answered something unexpected: %s", exc)

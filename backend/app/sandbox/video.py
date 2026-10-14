@@ -18,6 +18,24 @@ logger = logging.getLogger(__name__)
 
 VIDEO_NAME = "video.mp4"
 POSTER_NAME = re.compile(r"^scene-\d{2}\.png$")
+# The voice clips and sounds a video may carry (the skill checks the same shape).
+AUDIO_NAME = re.compile(r"^(voice-\d{2}|bed|transition)\.mp3$")
+MAX_AUDIO_FILES = 20
+MAX_AUDIO_BYTES = 4 * 1024 * 1024
+MAX_AUDIO_TOTAL = 12 * 1024 * 1024
+
+
+def is_mp3(data: bytes) -> bool:
+    return data[:3] == b"ID3" or (len(data) > 1 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0)
+
+
+def check_audio(audio: dict[str, bytes]) -> None:
+    """Names from the fixed set, MP3 content, sizes within limits; RenderError otherwise."""
+    if len(audio) > MAX_AUDIO_FILES or sum(len(d) for d in audio.values()) > MAX_AUDIO_TOTAL:
+        raise RenderError("Слишком много звука для одного ролика")
+    for name, data in audio.items():
+        if not AUDIO_NAME.match(name) or len(data) > MAX_AUDIO_BYTES or not is_mp3(data):
+            raise RenderError("Звуковой файл не подходит для ролика")
 
 
 @dataclass
@@ -26,6 +44,7 @@ class VideoBuild:
     posters: list[Path]
     duration: float
     timings: dict[str, float] = field(default_factory=dict)
+    audio: bool = False  # the MP4 has a sound track
 
 
 def build_video(
@@ -37,6 +56,7 @@ def build_video(
     skill_dir: Path,
     timeout_s: int,
     workers: int = 1,
+    audio: dict[str, bytes] | None = None,
 ) -> VideoBuild:
     if not (skill_dir / "src" / "cli.ts").is_file():
         raise RenderError("Сборщик видео не установлен в этом контейнере")
@@ -50,6 +70,13 @@ def build_video(
     if logo is not None:
         (inputs / "logo.png").write_bytes(logo)
         cmd += ["--logo", str(inputs / "logo.png")]
+    if audio:
+        check_audio(audio)
+        sounds = inputs / "audio"
+        sounds.mkdir()
+        for name, data in audio.items():
+            (sounds / name).write_bytes(data)
+        cmd += ["--audio", str(sounds)]
 
     with private_home() as home:
         try:
@@ -70,6 +97,7 @@ def build_video(
             posters=[out / name for name in posters],
             duration=float(report["duration"]),
             timings={k: float(v) for k, v in dict(report.get("timings", {})).items()},
+            audio=report.get("audio") is True,
         )
     except (OSError, ValueError, KeyError, TypeError) as exc:
         logger.error("video render wrote an unreadable report: %s", exc)

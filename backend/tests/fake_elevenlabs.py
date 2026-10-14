@@ -22,9 +22,12 @@ def fake_mp3(seconds: float) -> bytes:
 
 
 class FakeElevenLabs:
-    def __init__(self, *, timestamps: bool = True, credits: bool = True) -> None:
+    def __init__(
+        self, *, timestamps: bool = True, credits: bool = True, sound_effects: bool = True
+    ) -> None:
         self.timestamps = timestamps
         self.credits = credits
+        self.sound_effects = sound_effects
         self.calls: list[tuple[str, str, dict[str, Any]]] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -68,5 +71,10 @@ class FakeElevenLabs:
                 )
             return httpx.Response(200, content=audio, headers={"content-type": "audio/mpeg"})
         if path == "/v1/sound-generation":
+            if not self.sound_effects:
+                return self._error(402, "paid_plan_required", "Sound effects need a paid plan")
             return httpx.Response(200, content=fake_mp3(float(body["duration_seconds"])))
         return httpx.Response(404, json={"detail": "not found"})
+
+    def count(self, fragment: str) -> int:
+        return sum(1 for _, path, _ in self.calls if fragment in path)

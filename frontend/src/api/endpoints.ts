@@ -79,7 +79,8 @@ export const scenarios = {
 export const voice = {
   status: () => apiGet<VoiceStatus>("/voice"),
   setKey: (apiKey: string) => apiPut<VoiceStatus>("/voice", { api_key: apiKey }),
-  choose: (voiceId: string) => apiPatch<VoiceStatus>("/voice", { voice_id: voiceId }),
+  update: (change: { voice_id?: string; sounds?: boolean }) =>
+    apiPatch<VoiceStatus>("/voice", change),
   voices: () => apiGet<VoiceInfo[]>("/voice/voices"),
   remove: () => apiDelete("/voice"),
 };

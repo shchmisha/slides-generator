@@ -22,6 +22,7 @@ export interface VoiceStatus {
   enabled: boolean;
   voice_id: string | null;
   voice_name: string | null;
+  sounds: boolean;
   updated_at: string | null;
   model: string;
 }
@@ -100,6 +101,16 @@ export interface Job {
     scenes?: number;
     seconds?: number;
     starts?: number[];
+    /** The MP4 has a sound track (voice, sounds). */
+    audio?: boolean;
+    voice?: {
+      name: string;
+      model: string;
+      clips: number;
+      new_clips: number;
+      characters: number;
+      sounds: boolean;
+    } | null;
     errors?: string[];
   };
   created_at: string;
