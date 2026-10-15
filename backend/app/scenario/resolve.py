@@ -30,6 +30,35 @@ _SCALES = (
 )
 
 
+# The period a label speaks of, and the period of the cell its value comes from: "Выручка за
+# квартал" over "› Итого по компании › Сентябрь факт" (998, not 2 877) was seen live.
+_MONTHS = (
+    ("январь", "январ"),
+    ("февраль", "феврал"),
+    ("март", "март"),
+    ("апрель", "апрел"),
+    ("май", "ма[йя]"),
+    ("июнь", "июн"),
+    ("июль", "июл"),
+    ("август", "август"),
+    ("сентябрь", "сентябр"),
+    ("октябрь", "октябр"),
+    ("ноябрь", "ноябр"),
+    ("декабрь", "декабр"),
+)
+_WHOLE_PERIOD = re.compile(r"квартал|за три месяца|за 3 месяца|итого", re.IGNORECASE)
+
+
+def period_of(text: str) -> str | None:
+    """ "сентябрь", "квартал", or None when the text names no period or several months."""
+    months = {name for name, stem in _MONTHS if re.search(rf"\b{stem}", text, re.IGNORECASE)}
+    if len(months) == 1:
+        return months.pop()
+    if not months and _WHOLE_PERIOD.search(text):
+        return "квартал"
+    return None
+
+
 def scale_word(text: str | None) -> str | None:
     for word, pattern in _SCALES:
         if text and pattern.search(text):
@@ -248,6 +277,15 @@ class _SlideResolver:
             return total
         return value
 
+    def check_period(self, label: str, q: Quantity, path: str) -> None:
+        said, actual = period_of(label), period_of(q.label)
+        if said and actual and said != actual:
+            self.errors.append(
+                f"{path}: подпись «{label}» говорит о периоде «{said}», а значение "
+                f"{q.formatted()} — за «{actual}» ({q.label}). Возьмите значение за нужный "
+                "период или поправьте подпись"
+            )
+
     def check_scale(self, label: str | None, data: Series, path: str) -> None:
         claimed = scale_word(label)
         if claimed is None or data.unit is None:
@@ -352,6 +390,8 @@ class _SlideResolver:
         kpis = []
         for i, kpi in enumerate(slide.kpis):
             q = self.item(kpi.value, kpi.key, f"{path}.kpis[{i}].value")
+            if q is not None:
+                self.check_period(kpi.label, q, f"{path}.kpis[{i}]")
             value = (
                 format_number(q.value, q.decimals) if q and q.value is not None else "нет данных"
             )
@@ -449,7 +489,21 @@ class _SlideResolver:
         totals: list[Quantity | None] = []
         for i, (spec, data) in enumerate(zip(table.columns, columns, strict=True)):
             if spec.total:
-                totals.append(self.total_of(spec.total, f"{path}.columns[{i}].total"))
+                total = self.total_of(spec.total, f"{path}.columns[{i}].total")
+                own = next((t.quantity for t in data.items if t.total), None)
+                if (
+                    total
+                    and own
+                    and total.value is not None
+                    and own.value is not None
+                    and abs(total.value - own.value) > 0.5 * 10 ** -max(own.decimals, 0)
+                ):
+                    self.errors.append(
+                        f"{path}.columns[{i}].total: «{spec.total}» = {total.formatted()}, "
+                        f"а итог этого столбца в данных — {own.formatted()} "
+                        f"({own.label}). Уберите total: итог возьмётся из данных"
+                    )
+                totals.append(total)
             else:
                 totals.append(next((t.quantity for t in data.items if t.total), None))
         # An automatic total only when all rows are shown: a company total under a subset of

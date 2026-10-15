@@ -415,6 +415,43 @@ def test_orders_labelled_in_thousands_are_refused(store: FactStore, board: dict[
         resolve(store, board)
 
 
+def test_a_kpi_label_and_its_value_speak_of_one_period(
+    store: FactStore, board: dict[str, Any]
+) -> None:
+    from app.scenario.resolve import period_of
+
+    assert (
+        period_of("Выручка за квартал") == "квартал" and period_of("Маржа в сентябре") == "сентябрь"
+    )
+    assert period_of("Выручка › Итого по компании › Сентябрь факт") == "сентябрь"
+    assert period_of("Рост к прошлому году") is None and period_of("Июль и август") is None
+    # Seen live: September's 998 shown as the quarter's revenue (2 877).
+    board["values"]["by_month"] = {
+        "table": "t1",
+        "row": "Итого по компании",
+        "cols": ["Июль факт", "Август факт", "Сентябрь факт"],
+    }
+    board["slides"][0]["kpis"][0] |= {
+        "label": "Выручка за квартал",
+        "value": "by_month",
+        "key": "Сентябрь факт",
+    }
+    with pytest.raises(ScenarioError, match="говорит о периоде «квартал», а значение 998"):
+        resolve(store, board)
+
+
+def test_an_explicit_total_must_be_the_columns_own(store: FactStore, board: dict[str, Any]) -> None:
+    board["values"]["by_month"] = {
+        "table": "t1",
+        "row": "Итого по компании",
+        "cols": ["Июль факт", "Август факт", "Сентябрь факт"],
+    }
+    table = next(s["table"] for s in board["slides"] if s.get("table"))
+    table["columns"][0]["total"] = "by_month[Сентябрь факт]"
+    with pytest.raises(ScenarioError, match="итог этого столбца в данных"):
+        resolve(store, board)
+
+
 def test_total_row_comes_from_the_series_itself(store: FactStore, board: dict[str, Any]) -> None:
     for column in board["slides"][1]["table"]["columns"]:
         column.pop("total", None)
