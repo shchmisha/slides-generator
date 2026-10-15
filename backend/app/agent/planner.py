@@ -230,6 +230,10 @@ def _run[S: BaseModel](
                 return checked, attempts, completion.text
             soft_round_used = True
             repair = repair_message([], checked.findings)
+        elif best is not None:
+            # The polishing round broke a valid scenario: keep that one rather than spend
+            # another minute or two of the model's time repairing the repair.
+            return best[0], attempts, best[1]
         else:
             repair = repair_message(checked.errors, checked.findings)
         messages += [
@@ -301,13 +305,12 @@ class DeckCheck(_Check[DeckScenario]):
         checked.findings = lint_deck(scenario, self.store.tables, count, wanted)
         target = self.settings.slides
         if target and count != target:
-            # Off by one is a note for the repair round, not a failed generation: a deck of 9
-            # slides for "10" is still a good deck, a failed job after three minutes is not.
-            message = f"slides: в настройках {target} слайдов, а их {count}"
-            if abs(count - target) > 1 and not self.by_user:
-                checked.errors.append(f"{message}: добавь или убери слайды")
-            else:
-                checked.findings.append(message)
+            # A wish, not correctness: the model is asked once to fix it, and if it cannot, the
+            # valid deck is kept with this warning. Seen live: asked for 10 slides, the model
+            # wrote 8, and its attempt to add two broke the data references — failing the whole
+            # generation after five minutes helped nobody.
+            hint = "" if self.by_user else ": добавь или убери слайды"
+            checked.findings.append(f"slides: в настройках {target} слайдов, а их {count}{hint}")
         return checked
 
 

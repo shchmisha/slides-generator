@@ -74,11 +74,24 @@ def test_gives_up_after_max_attempts(materials) -> None:  # type: ignore[no-unty
     assert "нет JSON" in info.value.errors[0]
 
 
-def test_slide_count_from_settings_is_enforced(materials, board) -> None:  # type: ignore[no-untyped-def]
+def test_slide_count_from_settings_is_asked_for_once(materials, board) -> None:  # type: ignore[no-untyped-def]
     model = ScriptedModel(*[json.dumps(board, ensure_ascii=False)] * MAX_ATTEMPTS)
-    with pytest.raises(PlanningError) as info:
-        plan_deck(*materials, DeckSettings(slides=5), model)
-    assert any("в настройках 5 слайдов, а их 9: добавь" in e for e in info.value.errors)
+    plan = plan_deck(*materials, DeckSettings(slides=5), model)
+    assert "в настройках 5 слайдов, а их 9: добавь" in model.requests[1][-1]["content"]
+    assert any("в настройках 5 слайдов, а их 9" in w for w in plan.warnings)
+
+
+def test_a_broken_repair_keeps_the_valid_deck(materials, board) -> None:  # type: ignore[no-untyped-def]
+    # Seen live: 8 slides for "10", then the attempt to add two broke the data references.
+    broken = json.loads(json.dumps(board))
+    broken["values"]["rev_fact"] = {"table": "t1", "cols": ["Июль факт"]}
+    replies = [json.dumps(board, ensure_ascii=False), json.dumps(broken, ensure_ascii=False)]
+    plan = plan_deck(*materials, DeckSettings(slides=10), ScriptedModel(*replies))
+    assert len(plan.attempts) == 2 and plan.attempts[1].errors
+    assert (
+        plan.scenario.model_dump(mode="json", exclude_none=True)["values"]["rev_fact"]
+        == board["values"]["rev_fact"]
+    )
 
 
 def test_one_slide_off_is_a_note_not_a_failure(materials, board) -> None:  # type: ignore[no-untyped-def]
@@ -238,7 +251,7 @@ def test_findings_fixed_in_the_repair_round(materials, board) -> None:  # type: 
 def test_a_repair_that_breaks_the_reply_keeps_the_earlier_one(materials, board) -> None:  # type: ignore[no-untyped-def]
     model = ScriptedModel(with_gap_wording(board), "оборванный ответ {", "снова не JSON")
     plan = plan_deck(*materials, DeckSettings(), model)
-    assert len(plan.attempts) == 3
+    assert len(plan.attempts) == 2  # the polishing round broke it: no third call
     assert plan.scenario.slides[1].callout == "Урал отстал от плана на {completion[Урал]}."  # type: ignore[union-attr]
 
 
