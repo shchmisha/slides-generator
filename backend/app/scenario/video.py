@@ -4,12 +4,14 @@ The model writes narration and picks a visual type per scene; HTML is never writ
 model (scenes are rendered from our own HyperFrames templates).
 """
 
+import math
 import re
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from app.scenario.clean import clean_text
+from app.scenario.timing import give, take_back
 
 ShortText = Annotated[str, Field(min_length=1, max_length=90), AfterValidator(clean_text)]
 Narration = Annotated[str, Field(min_length=1, max_length=420), AfterValidator(clean_text)]
@@ -54,35 +56,51 @@ def _numbers(text: str) -> set[str]:
     return {re.sub(r"[  ]", "", n).replace(",", ".") for n in _NUMBER.findall(text)}
 
 
+MIN_SCENE_S = 3
+MAX_SCENE_S = 15
+
+
+def _needed_tenths(scene: Scene) -> int:
+    words = len(scene.narration.split())
+    return max(MIN_SCENE_S * 10, math.ceil(round(words / MAX_WORDS_PER_SECOND * 10, 6)))
+
+
 def fit_duration(
     scenario: VideoScenario,
     min_total_s: float = MIN_TOTAL_S,
     max_total_s: float = MAX_TOTAL_S,
 ) -> tuple[VideoScenario, str | None]:
-    """Scale scene durations into the allowed total when the model's sum is off (it often
-    lands at 78–80 s for a 60–75 s limit). Code adds numbers better than a language model.
-    Shortening is done only while every scene stays speakable; otherwise the check reports
-    it and the model shortens the text."""
-    total = sum(scene.duration_s for scene in scenario.scenes)
-    if min_total_s <= total <= max_total_s or total <= 0:
+    """Scene lengths that fit both the words and the allowed total. The model often lands at
+    78–80 s for a 60–75 s limit, or gives one scene more words than its seconds allow, and
+    repeats it when asked to fix it (seen live); code adds numbers better than a language
+    model. A scene too short for its words gets the time it needs, taken back from scenes
+    with time to spare. Only when the words cannot fit at all does the check report it, and
+    the model shortens the text."""
+    scenes = scenario.scenes
+    need = [_needed_tenths(scene) for scene in scenes]
+    planned = [round(scene.duration_s * 10) for scene in scenes]
+    low, high = round(min_total_s * 10), round(max_total_s * 10)
+    if sum(need) > high or max(need) > MAX_SCENE_S * 10:
         return scenario, None
-    target = max_total_s if total > max_total_s else min_total_s
-    factor = target / total
-    scenes = []
-    for scene in scenario.scenes:
-        seconds = round(scene.duration_s * factor, 1)
-        if seconds < 3 or len(scene.narration.split()) > seconds * MAX_WORDS_PER_SECOND:
-            return scenario, None
-        scenes.append(scene.model_copy(update={"duration_s": seconds}))
-    # Rounding can leave the sum a tenth outside the window: settle it on the longest scene.
-    drift = round(target - sum(s.duration_s for s in scenes), 1)
-    if drift:
-        longest = max(range(len(scenes)), key=lambda i: scenes[i].duration_s)
-        scenes[longest] = scenes[longest].model_copy(
-            update={"duration_s": round(scenes[longest].duration_s + drift, 1)}
-        )
-    fitted = scenario.model_copy(update={"scenes": scenes})
-    return fitted, f"Длительность сцен подогнана кодом: {total:g} → {target:g} с"
+    lengths = [max(p, n) for p, n in zip(planned, need, strict=True)]
+    if sum(lengths) > high:
+        lengths = take_back(lengths, need, sum(lengths) - high)
+    elif sum(lengths) < low:
+        lengths = give(lengths, [MAX_SCENE_S * 10] * len(lengths), low - sum(lengths))
+    if lengths == planned or not low <= sum(lengths) <= high:
+        return scenario, None
+    fitted = scenario.model_copy(
+        update={
+            "scenes": [
+                scene.model_copy(update={"duration_s": length / 10})
+                for scene, length in zip(scenes, lengths, strict=True)
+            ]
+        }
+    )
+    before, after = sum(planned) / 10, sum(lengths) / 10
+    if before == after:
+        return fitted, "Длительности сцен подогнаны кодом под объём текста"
+    return fitted, f"Длительность сцен подогнана кодом: {before:g} → {after:g} с"
 
 
 def check_video(

@@ -95,3 +95,29 @@ def test_durations_are_not_squeezed_below_speakable() -> None:
     scenario = video(*[scene(13.5, long_text)] * 6)
     fitted, note = fit_duration(scenario, 60, 75)
     assert note is None and fitted is scenario  # the model has to shorten the text
+
+
+def test_a_wordy_scene_gets_its_time_from_scenes_with_room() -> None:
+    from app.scenario.video import fit_duration
+
+    # Seen live: 79 s for 60–75 s, the last scene 23 words in 8 s (at most 20), and the model
+    # sent the same scenario back three times when asked to fix it.
+    words = lambda n: " ".join(["слово"] * n)  # noqa: E731
+    scenes = [
+        scene(s, words(w))
+        for s, w in [(10, 18), (12, 20), (12, 22), (12, 20), (12, 21), (13, 24), (8, 23)]
+    ]
+    fitted, note = fit_duration(video(*scenes), 60, 75)
+    lengths = [s.duration_s for s in fitted.scenes]
+    assert sum(lengths) == pytest.approx(75) and lengths[-1] >= 23 / 2.6
+    assert note == "Длительность сцен подогнана кодом: 79 → 75 с"
+    assert check_video(fitted, SOURCE) == []
+
+
+def test_a_short_video_is_stretched_to_the_minimum() -> None:
+    from app.scenario.video import fit_duration
+
+    fitted, note = fit_duration(video(*[scene(12)] * 4), 60, 75)  # 48 s
+    assert sum(s.duration_s for s in fitted.scenes) == pytest.approx(60)
+    assert all(s.duration_s <= 15 for s in fitted.scenes)
+    assert note == "Длительность сцен подогнана кодом: 48 → 60 с"

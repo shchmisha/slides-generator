@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from app.config import get_settings
+from app.scenario.timing import take_back
 from app.storage import project_dir, write_file
 from app.voice.elevenlabs import Alignment, VoiceError, sound, speak
 
@@ -182,19 +183,7 @@ def fit_timeline(
     maximum. Works in tenths of a second, so the sum is exact. Returns (lengths, warning)."""
     need = [math.ceil(round((LEAD_S + s + TAIL_S) * 10, 6)) for s in spoken]
     lengths = [max(round(p * 10), n) for p, n in zip(planned, need, strict=True)]
-    excess = sum(lengths) - round(max_total * 10)
-    if excess > 0:
-        slack = [length - n for length, n in zip(lengths, need, strict=True)]
-        available = sum(slack)
-        cut = [s * min(excess, available) // available if available else 0 for s in slack]
-        left = min(excess, available) - sum(cut)
-        for i in sorted(range(len(slack)), key=lambda i: slack[i] - cut[i], reverse=True):
-            if left <= 0:
-                break
-            if slack[i] - cut[i] > 0:
-                cut[i] += 1
-                left -= 1
-        lengths = [length - c for length, c in zip(lengths, cut, strict=True)]
+    lengths = take_back(lengths, need, sum(lengths) - round(max_total * 10))
     seconds = [length / 10 for length in lengths]
     total = sum(lengths) / 10
     warning = None
