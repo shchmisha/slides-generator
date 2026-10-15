@@ -24,14 +24,47 @@ _NUMBER_WORDS = re.compile(
 )
 MAX_FREE_NUMBER = 12
 _BRACED_NUMBER = re.compile(r"\{\s*[\d.,\s]+%?\s*\}")  # "{12}": a number dressed as a placeholder
-# "вырос на {x}", "отстал от плана на {x}": the verb already says the direction, so the value
-# is shown without its sign ("вырос на 55,6 %", not "вырос на +55,6 %").
-_DIRECTION_BEFORE = re.compile(
-    r"(вырос\w*|выросл\w*|увелич\w*|сниз\w*|сократ\w*|уменьш\w*|упал\w*|отстал\w*"
-    r"|превысил\w*|превзош\w*|недобра\w*|прибав\w*|потерял\w*|подорож\w*|подешев\w*)"
-    r"(?:\s+[^\s{}]+){0,3}?\s+на\s*$",
+# A word before a value that already says the direction makes its sign redundant: "вырос на
+# 55,6 %", not "вырос на +55,6 %"; "недобор 16 млн ₽", not "недобор −16 млн ₽".
+#
+# Gap words name a size, whichever way the model computed it (fact − plan or plan − fact), so
+# the value is shown without its sign. Change words describe a signed change: the sign is
+# dropped only when it agrees with the word, and a contradiction ("вырос на" a negative value)
+# is an error, so a decline never reads as growth.
+_WITHIN = r"(?:\s+[^\s{}]+){0,3}?\s+на\s*$"  # "... отстал от плана на {x}"
+_NEXT_TO = r"(?:\s+[^\s{}]+){0,2}?\s*[—–:-]?\s*$"  # "недобор {x}", "рост выручки — {x}"
+_GAP = re.compile(
+    r"(?:(?:отстал|превысил|превзош|недобра|перевыполн|недовыполн|выше плана|ниже плана"
+    r"|не хватил)\w*" + _WITHIN + r")|(?:\b(?:недобор|перерасход|экономи|отставани|превышени"
+    r"|дефицит|перевыполнени|недовыполнени)\w*" + _NEXT_TO + r")",
     re.IGNORECASE,
 )
+_RIGHT_BEFORE = r"\s*[—–:-]?\s*$"  # "рост {x}", "снижение — {x}"
+# Verbs and comparatives say the direction only with "на" ("выше прошлого года на {x}"; in
+# "ниже плана: {x}" the value is a level, not the change). Nouns also right before the value.
+_UP_VERBS = r"вырос\w*|выросл\w*|увелич\w*|прибав\w*|подорож\w*|выше|больше|дороже"
+_DOWN_VERBS = r"сниз\w*|сократ\w*|уменьш\w*|упал\w*|потерял\w*|подешев\w*|ниже|меньше|дешевле"
+_UP_NOUNS = r"рост\w*|прирост\w*|увеличени\w*"
+_DOWN_NOUNS = r"снижени\w*|падени\w*|сокращени\w*|уменьшени\w*"
+_UP = re.compile(
+    rf"\b(?:({_UP_VERBS}|{_UP_NOUNS}){_WITHIN}|({_UP_NOUNS}){_RIGHT_BEFORE})", re.IGNORECASE
+)
+_DOWN = re.compile(
+    rf"\b(?:({_DOWN_VERBS}|{_DOWN_NOUNS}){_WITHIN}|({_DOWN_NOUNS}){_RIGHT_BEFORE})",
+    re.IGNORECASE,
+)
+
+
+def _direction(before: str) -> tuple[str, str] | None:
+    """("gap" | "up" | "down", the word) for a word right before a value, if any."""
+    if match := _GAP.search(before):
+        return "gap", match.group(0).split()[0]
+    up, down = _UP.search(before), _DOWN.search(before)
+    if up and (not down or up.start() > down.start()):
+        return "up", up.group(1) or up.group(2)
+    if down:
+        return "down", down.group(1) or down.group(2)
+    return None
 
 
 def _words(label: str) -> list[str]:
@@ -136,9 +169,20 @@ def render_text(
         if q is None:
             out.append(match.group(0))
             continue
-        before = "".join(out)
-        if _DIRECTION_BEFORE.search(before) and q.value is not None:
-            out.append(q.model_copy(update={"value": abs(q.value)}).formatted())
+        direction = _direction("".join(out)) if q.value is not None else None
+        if direction is not None and q.value is not None:
+            kind, word = direction
+            agrees = kind == "gap" or q.value == 0 or (q.value > 0) == (kind == "up")
+            if agrees:
+                out.append(q.model_copy(update={"value": abs(q.value)}).formatted())
+            else:
+                shown = q.formatted(signed=True)
+                errors.append(
+                    f"{path}: «{word} … {match.group(0)}» — значение {shown} противоречит слову "
+                    f"«{word}». Возьми слово с другим направлением или посчитай разницу в другую "
+                    "сторону"
+                )
+                out.append(shown)
         else:
             out.append(q.formatted(signed=bool(match.group(3))))
         # The unit is already part of the value: drop it if the text repeats it ("87,2 % %").

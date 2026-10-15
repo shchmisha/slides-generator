@@ -373,6 +373,30 @@ def test_direction_word_shows_the_value_without_a_sign(
     )
 
 
+def test_words_that_say_the_direction_drop_a_redundant_sign(
+    store: FactStore, board: dict[str, Any]
+) -> None:
+    # Both slips seen in live runs: "рост на +55,6 %" and "недобор −16 млн ₽".
+    board["slides"][5]["callout"] = (
+        "Маркетинг: рост на {cost_change[Маркетинг]:+}; недобор Урала {deviation[Урал]}; "
+        "Юг выше плана на {deviation[Юг]:+}; Урал ниже плана: {completion[Урал]}."
+    )
+    callout = resolve(store, board).spec.slides[5].callout  # type: ignore[union-attr]
+    assert callout == (
+        f"Маркетинг: рост на 55,6{NBSP}%; недобор Урала 16{NBSP}млн ₽; "
+        f"Юг выше плана на 29{NBSP}млн ₽; Урал ниже плана: 96,6{NBSP}%."
+    )
+
+
+def test_a_change_word_against_the_sign_is_an_error(
+    store: FactStore, board: dict[str, Any]
+) -> None:
+    # Dropping the sign here would turn a shortfall into growth.
+    board["slides"][5]["callout"] = "Урал вырос на {deviation[Урал]}."
+    with pytest.raises(ScenarioError, match="противоречит слову «вырос»"):
+        resolve(store, board)
+
+
 def test_total_row_comes_from_the_series_itself(store: FactStore, board: dict[str, Any]) -> None:
     for column in board["slides"][1]["table"]["columns"]:
         column.pop("total", None)

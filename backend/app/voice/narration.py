@@ -88,10 +88,10 @@ def _alignment_in(data: Any) -> Alignment | None:
 
 
 def _clip(
-    key: str, text: str, voice_id: str, model: str, folder: Path, number: int
+    key: str, text: str, voice_id: str, model: str, language: str, folder: Path, number: int
 ) -> tuple[Clip, str, bool]:
     """(clip, cache name, made now)."""
-    name = _digest(CACHE_VERSION, model, voice_id, "ru", text)
+    name = _digest(CACHE_VERSION, model, voice_id, language, text)
     file = f"voice-{number:02d}.mp3"
     hit = _cached(folder, name)
     if hit is not None:
@@ -101,7 +101,7 @@ def _clip(
             name,
             False,
         )
-    speech = speak(key, text, voice_id, model=model, seed=int(name[:8], 16))
+    speech = speak(key, text, voice_id, model=model, language=language, seed=int(name[:8], 16))
     write_file(folder / f"{name}.mp3", speech.audio)
     meta = {"duration": speech.duration, "alignment": _alignment_out(speech.alignment)}
     write_file(folder / f"{name}.json", json.dumps(meta, ensure_ascii=False).encode())
@@ -134,6 +134,7 @@ def narrate(
     project_id: uuid.UUID,
     user_id: uuid.UUID,
     with_sounds: bool,
+    language: str = "ru",
     on_clip: Callable[[int, int], None] = lambda done, total: None,
 ) -> Narration:
     """A clip per scene text (VoiceError if any fails), then the sounds (a failure there only
@@ -143,7 +144,7 @@ def narrate(
     results: list[tuple[Clip, str, bool] | None] = [None] * len(texts)
     with ThreadPoolExecutor(max_workers=PARALLEL, thread_name_prefix="voice") as pool:
         futures = {
-            pool.submit(_clip, key, text, voice_id, model, folder, i + 1): i
+            pool.submit(_clip, key, text, voice_id, model, language, folder, i + 1): i
             for i, text in enumerate(texts)
         }
         try:

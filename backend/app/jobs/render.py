@@ -272,11 +272,12 @@ def _narrate(
     project: Project,
     voice: tuple[VoiceSettings, str],
     timeline: dict[str, Any],
-    max_seconds: float,
+    basis: VideoBasis,
 ) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any], list[str]]:
     """(voiced timeline, audio files, report of the voice, warnings)."""
     row, key = voice
     texts = [str(scene["narration"]) for scene in timeline["scenes"]]
+    language, max_seconds = basis.settings.language, basis.settings.max_seconds
 
     def on_clip(done: int, total: int) -> None:
         report_progress(db, claimed, 5 + round(15 * done / total), "озвучка")
@@ -290,6 +291,7 @@ def _narrate(
             project_id=project.id,
             user_id=project.user_id,
             with_sounds=row.sounds,
+            language=language,
             on_clip=on_clip,
         )
     except VoiceError as exc:
@@ -331,9 +333,7 @@ def _video(
     voice_report: dict[str, Any] | None = None
     if voice is not None:
         t = perf_counter()
-        timeline, audio, voice_report, more = _narrate(
-            db, claimed, project, voice, timeline, basis.settings.max_seconds
-        )
+        timeline, audio, voice_report, more = _narrate(db, claimed, project, voice, timeline, basis)
         warnings += more
         timings["voice_ms"] = _ms(t)
     spec = json.dumps(timeline, ensure_ascii=False)

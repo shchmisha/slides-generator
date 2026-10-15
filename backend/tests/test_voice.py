@@ -191,3 +191,15 @@ def test_sounds_are_optional_and_their_failure_only_warns(
         fake_record(),
     )
     assert fake.count("sound-generation") == calls  # switched off: not even asked
+
+
+def test_the_voice_speaks_the_projects_language(data_dir: Path, eleven: FakeElevenLabs) -> None:
+    project_id, user_id = uuid.uuid4(), uuid.uuid4()
+    texts = ["Superservice is twelve services in one window."]
+    narrate(
+        KEY, "v1", texts, project_id=project_id, user_id=user_id, with_sounds=False, language="en"
+    )
+    sent = [body for _, path, body in eleven.calls if "text-to-speech" in path]
+    assert sent[-1]["language_code"] == "en"
+    again = narrate(KEY, "v1", texts, project_id=project_id, user_id=user_id, with_sounds=False)
+    assert again.synthesized == 1  # Russian is another clip, not a cache hit
