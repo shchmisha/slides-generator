@@ -78,7 +78,15 @@ def test_slide_count_from_settings_is_enforced(materials, board) -> None:  # typ
     model = ScriptedModel(*[json.dumps(board, ensure_ascii=False)] * MAX_ATTEMPTS)
     with pytest.raises(PlanningError) as info:
         plan_deck(*materials, DeckSettings(slides=5), model)
-    assert any("ровно 5 слайдов" in e for e in info.value.errors)
+    assert any("в настройках 5 слайдов, а их 9: добавь" in e for e in info.value.errors)
+
+
+def test_one_slide_off_is_a_note_not_a_failure(materials, board) -> None:  # type: ignore[no-untyped-def]
+    # Seen live: asked for 10, the model wrote 9 twice and the whole generation failed.
+    model = ScriptedModel(*[json.dumps(board, ensure_ascii=False)] * MAX_ATTEMPTS)
+    plan = plan_deck(*materials, DeckSettings(slides=10), model)
+    assert len(model.requests) == 2  # one repair round, then accepted
+    assert any("в настройках 10 слайдов, а их 9" in w for w in plan.warnings)
 
 
 def test_truncated_reply_asks_for_shorter_texts(materials) -> None:  # type: ignore[no-untyped-def]

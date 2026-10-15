@@ -151,7 +151,12 @@ def _review_deck(content: dict[str, Any], basis: DeckBasis) -> Review:
     except ValidationError as exc:
         return Review(content=None, errors=validation_errors(exc))
     check = DeckCheck(
-        FactStore(basis.tables), basis.notes, basis.settings, basis.wanted, basis.sources
+        FactStore(basis.tables),
+        basis.notes,
+        basis.settings,
+        basis.wanted,
+        basis.sources,
+        by_user=True,
     )
     checked = check.check(scenario)
     resolved = checked.resolved

@@ -272,6 +272,8 @@ class DeckCheck(_Check[DeckScenario]):
         settings: DeckSettings,
         wanted: tuple[int, int] | None,
         sources: dict[str, str] | None = None,
+        *,
+        by_user: bool = False,
     ) -> None:
         super().__init__(DeckScenario)
         self.store = store
@@ -279,6 +281,8 @@ class DeckCheck(_Check[DeckScenario]):
         self.settings = settings
         self.wanted = wanted
         self.sources = sources  # None: the materials' text is unknown, quotes are not checked
+        # The user's own edit: the slide count asked for in settings is theirs to change.
+        self.by_user = by_user
 
     def check(self, scenario: DeckScenario) -> Checked[DeckScenario]:
         checked = Checked(scenario=scenario)
@@ -293,12 +297,17 @@ class DeckCheck(_Check[DeckScenario]):
         if self.sources is not None:
             checked.errors += quote_errors(scenario.claims, self.sources)
         count = len(resolved.spec.slides)
-        if self.settings.slides and count != self.settings.slides:
-            checked.errors.append(
-                f"slides: нужно ровно {self.settings.slides} слайдов, а их {count}"
-            )
         wanted = None if self.settings.slides else self.wanted
         checked.findings = lint_deck(scenario, self.store.tables, count, wanted)
+        target = self.settings.slides
+        if target and count != target:
+            # Off by one is a note for the repair round, not a failed generation: a deck of 9
+            # slides for "10" is still a good deck, a failed job after three minutes is not.
+            message = f"slides: в настройках {target} слайдов, а их {count}"
+            if abs(count - target) > 1 and not self.by_user:
+                checked.errors.append(f"{message}: добавь или убери слайды")
+            else:
+                checked.findings.append(message)
         return checked
 
 

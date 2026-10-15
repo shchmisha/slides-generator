@@ -66,6 +66,17 @@ def test_wording_edit_is_accepted(board: dict[str, Any], basis: DeckBasis) -> No
     assert result.content["slides"][0]["title"] == "Итоги квартала"
 
 
+def test_the_user_may_delete_slides_whatever_the_slide_setting(
+    board: dict[str, Any], basis: DeckBasis
+) -> None:
+    edited = copy.deepcopy(board)
+    del edited["slides"][2:5]
+    asked_for_ten = basis.model_copy(update={"settings": DeckSettings(slides=10)})
+    result = review(edited, asked_for_ten)
+    assert result.ok, result.errors
+    assert any("в настройках 10 слайдов" in w for w in result.report["warnings"])
+
+
 def test_a_typed_number_is_rejected_like_from_the_model(
     board: dict[str, Any], basis: DeckBasis
 ) -> None:
