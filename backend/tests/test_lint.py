@@ -10,7 +10,7 @@ from app.facts.build import build_facts
 from app.facts.store import FactStore
 from app.ingest.extract import extract_file
 from app.scenario.deck import DeckScenario
-from app.scenario.lint import lint_deck
+from app.scenario.lint import lint_deck, unused_tables
 from app.scenario.video import VideoScenario, lint_video
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -127,3 +127,11 @@ def test_video_lint_needs_the_source_address_and_known_abbreviations() -> None:
     found = " ".join(lint_video(video, (FIXTURES / "superservice_text.txt").read_text()))
     assert "ETRN@dellin.ru" in found
     assert "сокращения ДЛ" in found
+
+
+def test_a_short_deck_is_told_which_tables_it_left_out(store: FactStore) -> None:
+    board = json.loads((FIXTURES / "board_scenario.json").read_text())
+    full = DeckScenario.model_validate(board)
+    assert unused_tables(full, store.tables) == []
+    revenue_only = DeckScenario.model_validate(board | {"slides": [board["slides"][1]]})
+    assert [t.id for t in unused_tables(revenue_only, store.tables)] == ["t2", "t3", "t4"]

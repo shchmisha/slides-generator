@@ -71,6 +71,15 @@ def _table_lineage(scenario: sc.DeckScenario) -> dict[str, set[str]]:
     return lineage
 
 
+def unused_tables(scenario: sc.DeckScenario, tables: list[Table]) -> list[Table]:
+    """Tables no slide draws on: what a deck short of its slide count could add."""
+    lineage = _table_lineage(scenario)
+    slides = scenario.model_dump_json(include={"slides"})
+    names = {n for n in lineage if re.search(rf'(?<![\w])"?{re.escape(n)}(?![\w])', slides)}
+    used = set().union(*(lineage[n] for n in names)) if names else set()
+    return [t for t in tables if t.id not in used]
+
+
 def _texts(scenario: sc.DeckScenario) -> list[tuple[str, str]]:
     """(path, text) for every free text of the slides."""
     out: list[tuple[str, str]] = []

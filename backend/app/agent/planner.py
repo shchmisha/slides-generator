@@ -37,7 +37,7 @@ from app.ingest.models import Document, Note
 from app.llm.client import ChatModel, Message
 from app.llm.jsonout import JsonOutputError, extract_json_object
 from app.scenario.deck import DeckScenario, Slide
-from app.scenario.lint import lint_deck
+from app.scenario.lint import lint_deck, unused_tables
 from app.scenario.quotes import quote_errors
 from app.scenario.resolve import ResolvedDeck, ScenarioError, resolve_deck
 from app.scenario.video import VideoScenario, check_video, fit_duration, lint_video
@@ -310,6 +310,11 @@ class DeckCheck(_Check[DeckScenario]):
             # wrote 8, and its attempt to add two broke the data references — failing the whole
             # generation after five minutes helped nobody.
             hint = "" if self.by_user else ": добавь или убери слайды"
+            if count < target and not self.by_user:
+                spare = unused_tables(scenario, self.store.tables)
+                if spare:
+                    titles = "; ".join(f"[{t.id}] {t.title}" for t in spare[:4])
+                    hint += f". Ещё нет на слайдах: {titles}"
             checked.findings.append(f"slides: в настройках {target} слайдов, а их {count}{hint}")
         return checked
 
