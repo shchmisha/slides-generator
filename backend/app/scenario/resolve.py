@@ -20,6 +20,23 @@ from app.scenario import deck as sc
 from app.scenario import render as rd
 from app.scenario.text import render_text, series_item
 
+# Scale words in a label the model writes: "Заказы, тыс. шт." over a column in "шт." claims a
+# thousand times the real figure (seen live), so a label may only repeat the data's scale.
+_SCALES = (
+    # "на тысячу заказов" is a rate, not a scale.
+    ("тыс", re.compile(r"(?<!на )\b(?:тыс\w*|тысяч\w*)", re.IGNORECASE)),
+    ("млн", re.compile(r"\bмлн\b|\bмиллион\w*", re.IGNORECASE)),
+    ("млрд", re.compile(r"\bмлрд\b|\bмиллиард\w*", re.IGNORECASE)),
+)
+
+
+def scale_word(text: str | None) -> str | None:
+    for word, pattern in _SCALES:
+        if text and pattern.search(text):
+            return word
+    return None
+
+
 DEFAULT_COLORS: tuple[rd.ColorToken, ...] = ("primary", "accent", "muted", "grid")
 CHANGE_NEUTRAL_PCT = 3.0  # smaller changes are shown without a red/green tone
 # A line whose values are this small next to the bars would be flat on their axis.
@@ -231,6 +248,18 @@ class _SlideResolver:
             return total
         return value
 
+    def check_scale(self, label: str | None, data: Series, path: str) -> None:
+        claimed = scale_word(label)
+        if claimed is None or data.unit is None:
+            return
+        actual = scale_word(data.unit)
+        if claimed != actual:
+            self.errors.append(
+                f"{path}: «{label}» — в данных единицы «{data.unit}», а в подписи другой "
+                f"масштаб ({claimed}): цифры читались бы в тысячи раз иначе. Пиши единицы как "
+                "в таблице или пересчитай значения операцией scale"
+            )
+
     def series(self, name: str, path: str) -> Series | None:
         value = self.lookup(name, path)
         if isinstance(value, Quantity):
@@ -355,6 +384,7 @@ class _SlideResolver:
         out: list[rd.ChartSeries] = []
         series_formats: list[str] = []
         for i, (spec, data) in enumerate(zip(chart.series, series, strict=True)):
+            self.check_scale(spec.name, data, f"{path}.series[{i}].name")
             values: list[float | None] = []
             decimals = 0
             for key, item in zip(categories, aligned(data, series[0], categories), strict=True):
@@ -401,6 +431,8 @@ class _SlideResolver:
             return None
         columns = [s for s in resolved if s is not None]
         keys = self.keys(columns[0], table.rows, f"{path}.rows")
+        for i, (spec, data) in enumerate(zip(table.columns, columns, strict=True)):
+            self.check_scale(spec.header, data, f"{path}.columns[{i}].header")
 
         cells: list[list[rd.TableCell]] = [[rd.TableCell(text=k)] for k in display_keys(keys)]
         for spec, data in zip(table.columns, columns, strict=True):

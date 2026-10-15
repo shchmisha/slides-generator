@@ -397,6 +397,24 @@ def test_a_change_word_against_the_sign_is_an_error(
         resolve(store, board)
 
 
+def test_a_label_may_not_change_the_datas_scale() -> None:
+    from app.scenario.resolve import scale_word
+
+    assert scale_word("Заказы, тыс. шт.") == "тыс" and scale_word("Выручка, млн руб.") == "млн"
+    assert scale_word("Жалобы на тысячу заказов") is None  # a rate, not a scale
+    assert scale_word("Доставка в срок, %") is None
+
+
+def test_orders_labelled_in_thousands_are_refused(store: FactStore, board: dict[str, Any]) -> None:
+    # Seen live: "Заказы, тыс. шт." over 41 200 orders would read as 41 million.
+    slide = next(s for s in board["slides"] if s.get("chart"))
+    slide["chart"]["series"][0]["name"] = "Заказы, тыс. шт."
+    board["values"]["orders"] = {"table": "t3", "col": "Заказов, шт."}
+    slide["chart"]["series"][0]["value"] = "orders"
+    with pytest.raises(ScenarioError, match=r"в данных единицы «шт\.», а в подписи другой масштаб"):
+        resolve(store, board)
+
+
 def test_total_row_comes_from_the_series_itself(store: FactStore, board: dict[str, Any]) -> None:
     for column in board["slides"][1]["table"]["columns"]:
         column.pop("total", None)

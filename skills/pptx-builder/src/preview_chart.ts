@@ -31,15 +31,31 @@ export interface ChartScales {
  */
 export function chartScales(spec: ChartSpec): ChartScales {
   const present = (values: (number | null)[]) => values.filter((v): v is number => v !== null);
-  const primaryValues = present(spec.series.filter((s) => s.axis !== "secondary").flatMap((s) => s.values));
-  const primary = niceScale(Math.min(0, ...primaryValues), Math.max(0, ...primaryValues));
-  const secondaryValues = present(spec.series.filter((s) => s.axis === "secondary").flatMap((s) => s.values));
+  const onPrimary = spec.series.filter((s) => s.axis !== "secondary");
+  const onSecondary = spec.series.filter((s) => s.axis === "secondary");
+  const primaryValues = present(onPrimary.flatMap((s) => s.values));
+  const primary = withHeadroom(
+    niceScale(Math.min(0, ...primaryValues), Math.max(0, ...primaryValues)),
+    Math.max(0, ...primaryValues),
+    onPrimary.some((s) => s.showValues),
+  );
+  const secondaryValues = present(onSecondary.flatMap((s) => s.values));
   if (secondaryValues.length === 0) return { primary };
   const secondary =
     spec.secondaryMin !== undefined && spec.secondaryMax !== undefined
       ? { min: spec.secondaryMin, max: spec.secondaryMax, step: (spec.secondaryMax - spec.secondaryMin) / 5 }
-      : niceScale(Math.min(0, ...secondaryValues), Math.max(0, ...secondaryValues));
+      : withHeadroom(
+          niceScale(Math.min(0, ...secondaryValues), Math.max(0, ...secondaryValues)),
+          Math.max(0, ...secondaryValues),
+          onSecondary.some((s) => s.showValues),
+        );
   return { primary, secondary };
+}
+
+/** One more step when a value printed above its bar or point would touch the top of the plot
+ * (998 on an axis that ends at 1 000 had its label cut off). */
+export function withHeadroom(scale: AxisScale, top: number, labelled: boolean): AxisScale {
+  return labelled && top > 0 && scale.max - top < scale.step * 0.25 ? { ...scale, max: scale.max + scale.step } : scale;
 }
 
 export function renderChartSvg(spec: ChartSpec, width: number, height: number, theme: Theme): string {
