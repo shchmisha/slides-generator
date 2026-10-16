@@ -153,8 +153,11 @@ html, body { margin: 0; background: ${p.background}; }
 export const AUDIO_FILE = /^(voice-\d{2}|bed|transition)\.mp3$/;
 
 // Levels under the voice (1.0): the bed is felt rather than heard, transitions are a soft cue.
+// Both sounds are levelled to SOUND_LUFS first (cli.ts), so these are dB below the voice
+// whatever the generator made: 0.1 ≈ −20 dB, 0.15 ≈ −16 dB.
+export const SOUND_LUFS = -16;
 const BED_VOLUME = 0.1;
-const TRANSITION_VOLUME = 0.3;
+const TRANSITION_VOLUME = 0.15;
 
 function audioTag(id: string, file: string, start: number, duration: number, volume: number, fades = ""): string {
   if (!AUDIO_FILE.test(file)) throw new Error(`unexpected audio file name: ${file}`);

@@ -16,7 +16,7 @@ import { parseArgs, promisify } from "node:util";
 
 import { createRenderJob, executeRenderJob } from "@hyperframes/producer";
 
-import { AUDIO_FILE, buildComposition, FPS, settledAt } from "./composition.ts";
+import { AUDIO_FILE, buildComposition, FPS, settledAt, SOUND_LUFS } from "./composition.ts";
 import type { Theme, VideoSpec } from "./types.ts";
 
 const run = promisify(execFile);
@@ -88,7 +88,15 @@ async function main(): Promise<void> {
       if (!AUDIO_FILE.test(name)) throw new Error(`unexpected audio file name: ${name}`);
       const data = await readFile(join(values.audio, name));
       if (data.length > MAX_AUDIO_BYTES || !isMp3(data)) throw new Error(`${name} is not an MP3 up to 8 MB`);
-      await writeFile(join(project, "assets", "audio", name), data);
+      const target = join(project, "assets", "audio", name);
+      if (name.startsWith("voice-")) {
+        await writeFile(target, data);
+      } else {
+        // Sound effects come as loud as their generator makes them (an ElevenLabs whoosh peaked
+        // at the voice's level): level them first, so the mix volumes mean the same every time.
+        const source = join(values.audio, name);
+        await run("ffmpeg", ["-v", "error", "-y", "-i", source, "-af", `loudnorm=I=${SOUND_LUFS}:TP=-2:LRA=11`, "-ar", "48000", "-c:a", "libmp3lame", "-b:a", "128k", target]);
+      }
     }
   }
   await writeFile(join(project, "index.html"), composition.html);
@@ -119,7 +127,7 @@ async function main(): Promise<void> {
     // the mix to -16 LUFS, the usual target for speech online. The picture is copied as is.
     started = performance.now();
     const levelled = join(out, "video.levelled.mp4");
-    await run("ffmpeg", ["-v", "error", "-y", "-i", video, "-map", "0", "-c:v", "copy", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", levelled]);
+    await run("ffmpeg", ["-v", "error", "-y", "-i", video, "-map", "0", "-c:v", "copy", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-ar", "48000", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", levelled]);
     await rename(levelled, video);
     timings.loudness_ms = performance.now() - started;
   }

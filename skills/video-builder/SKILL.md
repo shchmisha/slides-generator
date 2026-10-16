@@ -71,8 +71,9 @@ Files come from the `--audio` folder; their names must be `voice-NN.mp3`, `bed.m
 `transition.mp3` (MP3, up to 8 MB). A voiced scene's clip starts `offset` seconds into the scene;
 with `alignment` (character timing from ElevenLabs) each caption appears as its first word is
 spoken, without it captions share the clip's length. The bed loops under the whole video at a
-low level with fades at both ends; the transition cue plays at each scene change. Without any of
-these the video has no sound track.
+low level with fades at both ends; the transition cue plays at each scene change. Both sounds
+are levelled to −16 LUFS before mixing (generators make them as loud as they like), then placed
+20 dB (bed) and 16 dB (cue) under the voice. Without any of these the video has no sound track.
 
 ## Theme
 
